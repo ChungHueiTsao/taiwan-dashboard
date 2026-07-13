@@ -87,11 +87,13 @@ def generate():
 
     # Plotly 歷史折線圖
     line_traces = ""
+    max_hist_len = 1
     colors = ["#58a6ff","#ff4444","#22c55e","#eab308","#a855f7","#f97316","#06b6d4","#ec4899","#84cc16","#f43f5e","#8b5cf6","#14b8a6","#fb923c"]
     for i, s in enumerate(sectors[:13]):
         name = s['name']
         if name in history_data:
             hd = history_data[name]
+            max_hist_len = max(max_hist_len, len(hd['dates']))
             color = colors[i % len(colors)]
             line_traces += f"""{{x:{json.dumps(hd['dates'])},y:{json.dumps(hd['scores'])},name:'{name}',type:'scatter',mode:'lines+markers',line:{{color:'{color}',width:1.5}},marker:{{color:'{color}',size:5}}}},"""
 
@@ -401,6 +403,7 @@ function calcKD(h,l,c,n=9) {{
 
 let baseKData = EMPTY_KLINE;
 let currentPeriod = '日';
+let currentIndexKData = null;
 
 function aggregateData(base, period) {{
   if(period==='日'||!base.dates||base.dates.length===0) return base;
@@ -458,6 +461,7 @@ function renderKline() {{
     margin:{{l:50,r:8,t:4,b:20}},
     showlegend:false,
     dragmode:'pan',
+    hovermode:'x',
     xaxis:{{...DARK_LAYOUT.xaxis,rangeslider:{{visible:false}},type:'category',
       range:[0,d.dates.length-1],
       tickmode:'array',
@@ -471,16 +475,19 @@ function renderKline() {{
   document.getElementById('kd-k').textContent=lastK;
   document.getElementById('kd-d').textContent=lastD;
   Plotly.newPlot('kdChart',[
-    {{x:d.dates,y:kd.K,type:'scatter',mode:'lines',line:{{color:'#f97316',width:1.2}},name:'K',showlegend:false}},
-    {{x:d.dates,y:kd.D,type:'scatter',mode:'lines',line:{{color:'#58a6ff',width:1.2}},name:'D',showlegend:false}},
+    {{x:d.dates,y:kd.K,type:'scatter',mode:'lines',line:{{color:'#f97316',width:1.2}},name:'K'}},
+    {{x:d.dates,y:kd.D,type:'scatter',mode:'lines',line:{{color:'#58a6ff',width:1.2}},name:'D'}},
     {{x:[d.dates[0],d.dates[d.dates.length-1]],y:[80,80],type:'scatter',mode:'lines',
-      line:{{color:'#30363d',width:0.8,dash:'dot'}},showlegend:false}},
+      line:{{color:'#30363d',width:0.8,dash:'dot'}},showlegend:false,hoverinfo:'skip'}},
     {{x:[d.dates[0],d.dates[d.dates.length-1]],y:[20,20],type:'scatter',mode:'lines',
-      line:{{color:'#30363d',width:0.8,dash:'dot'}},showlegend:false}},
+      line:{{color:'#30363d',width:0.8,dash:'dot'}},showlegend:false,hoverinfo:'skip'}},
   ],{{
     ...DARK_LAYOUT,
     margin:{{l:50,r:8,t:0,b:14}},
-    xaxis:{{...DARK_LAYOUT.xaxis,showticklabels:false,type:'category',range:[0,d.dates.length-1]}},
+    showlegend:false,
+    dragmode:'pan',
+    hovermode:'x',
+    xaxis:{{...DARK_LAYOUT.xaxis,showticklabels:false,type:'category',range:[0,d.dates.length-1],fixedrange:true}},
     yaxis:{{...DARK_LAYOUT.yaxis,range:[0,100],dtick:40,fixedrange:true}}
   }},PLOT_CONFIG);
 
@@ -488,24 +495,30 @@ function renderKline() {{
   const lastVol=d.v[d.v.length-1];
   document.getElementById('vol-label').textContent=(lastVol/100000000).toFixed(0)+'億';
   Plotly.newPlot('volChart',[
-    {{x:d.dates,y:d.v,type:'bar',marker:{{color:d.colors,opacity:0.8}},showlegend:false}}
+    {{x:d.dates,y:d.v,type:'bar',marker:{{color:d.colors,opacity:0.8}}}}
   ],{{
     ...DARK_LAYOUT,
     margin:{{l:50,r:8,t:0,b:14}},
-    xaxis:{{...DARK_LAYOUT.xaxis,showticklabels:false,type:'category',range:[0,d.dates.length-1]}},
+    showlegend:false,
+    dragmode:'pan',
+    hovermode:'x',
+    xaxis:{{...DARK_LAYOUT.xaxis,showticklabels:false,type:'category',range:[0,d.dates.length-1],fixedrange:true}},
     yaxis:{{...DARK_LAYOUT.yaxis,showticklabels:false,fixedrange:true}}
   }},PLOT_CONFIG);
 
-  attachZoomSync(d.dates);
+  attachZoomSync('klineChart',['kdChart','volChart'],d.dates.length-1);
+  attachHoverSync(['klineChart','kdChart','volChart']);
+  attachShiftWheelPan('klineChart');
 }}
 
-// K線縮放/平移時，限制在資料範圍內，並同步 KD、成交量副圖
+// 縮放/平移時，限制在資料範圍內，並把 X 軸同步給其他圖表
 let _zoomSyncing = false;
-function attachZoomSync(dates) {{
-  const klineDiv = document.getElementById('klineChart');
-  const maxIdx = dates.length - 1;
-  klineDiv.removeAllListeners && klineDiv.removeAllListeners('plotly_relayout');
-  klineDiv.on('plotly_relayout', (ev) => {{
+const _zoomBoundDivs = {{}};
+function attachZoomSync(mainId, syncIds, maxIdx) {{
+  const mainDiv = document.getElementById(mainId);
+  _zoomBoundDivs[mainId] = maxIdx;
+  mainDiv.removeAllListeners && mainDiv.removeAllListeners('plotly_relayout');
+  mainDiv.on('plotly_relayout', (ev) => {{
     if(_zoomSyncing) return;
     let x0 = ev['xaxis.range[0]'], x1 = ev['xaxis.range[1]'];
     if(x0 === undefined && ev['xaxis.range']) {{ x0 = ev['xaxis.range'][0]; x1 = ev['xaxis.range'][1]; }}
@@ -523,15 +536,66 @@ function attachZoomSync(dates) {{
 
     _zoomSyncing = true;
     if(Math.abs(nx0 - x0) > 1e-6 || Math.abs(nx1 - x1) > 1e-6) {{
-      Plotly.relayout(klineDiv, {{'xaxis.range':[nx0,nx1]}});
+      Plotly.relayout(mainDiv, {{'xaxis.range':[nx0,nx1]}});
     }}
-    Plotly.relayout('kdChart', {{'xaxis.range':[nx0,nx1]}});
-    Plotly.relayout('volChart', {{'xaxis.range':[nx0,nx1]}});
+    syncIds.forEach(id => Plotly.relayout(id, {{'xaxis.range':[nx0,nx1]}}));
     _zoomSyncing = false;
   }});
 }}
 
+// Shift+滾輪：縮放後可左右平移查看
+function attachShiftWheelPan(divId) {{
+  const div = document.getElementById(divId);
+  if(div._shiftPanBound) return;
+  div._shiftPanBound = true;
+  div.addEventListener('wheel', function(ev) {{
+    if(!ev.shiftKey) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const layout = div.layout;
+    if(!layout || !layout.xaxis || !layout.xaxis.range) return;
+    const [x0,x1] = layout.xaxis.range;
+    const span = x1 - x0;
+    const shift = span * 0.15 * (ev.deltaY > 0 ? 1 : -1);
+    Plotly.relayout(div, {{'xaxis.range':[x0+shift, x1+shift]}});
+  }}, {{passive:false}});
+}}
+
+// 十字線 hover 同步：在任一圖表上移動滑鼠，其他圖表顯示同一X位置的數值
+let _hoverSyncing = false;
+function attachHoverSync(chartIds) {{
+  chartIds.forEach(id => {{
+    const div = document.getElementById(id);
+    if(div._hoverSyncBound) return;
+    div._hoverSyncBound = true;
+    div.on('plotly_hover', (ev) => {{
+      if(_hoverSyncing || !ev.points || !ev.points.length) return;
+      _hoverSyncing = true;
+      const idx = ev.points[0].pointIndex;
+      chartIds.filter(other => other !== id).forEach(other => {{
+        try {{
+          const otherDiv = document.getElementById(other);
+          const numTraces = (otherDiv.data || []).length;
+          const pts = [];
+          for(let t=0;t<numTraces;t++) pts.push({{curveNumber:t, pointNumber:idx}});
+          Plotly.Fx.hover(other, pts);
+        }} catch(e) {{}}
+      }});
+      _hoverSyncing = false;
+    }});
+    div.on('plotly_unhover', () => {{
+      if(_hoverSyncing) return;
+      _hoverSyncing = true;
+      chartIds.filter(other => other !== id).forEach(other => {{
+        try {{ Plotly.Fx.unhover(other); }} catch(e) {{}}
+      }});
+      _hoverSyncing = false;
+    }});
+  }});
+}}
+
 // 歷史趨勢圖
+const HISTORY_MAX_IDX = {max_hist_len - 1};
 function renderHistory() {{
   const traces=[{line_traces}];
   if(traces.length===0) return;
@@ -539,10 +603,14 @@ function renderHistory() {{
     ...DARK_LAYOUT,
     margin:{{l:40,r:8,t:4,b:30}},
     showlegend:true,
+    dragmode:'pan',
+    hovermode:'x',
     legend:{{bgcolor:'#161b22',bordercolor:'#30363d',borderwidth:1,font:{{size:9}}}},
-    xaxis:{{...DARK_LAYOUT.xaxis,type:'category'}},
-    yaxis:{{...DARK_LAYOUT.yaxis,title:'強勢評分'}}
+    xaxis:{{...DARK_LAYOUT.xaxis,type:'category',range:[0,HISTORY_MAX_IDX]}},
+    yaxis:{{...DARK_LAYOUT.yaxis,title:'強勢評分',fixedrange:true}}
   }},PLOT_CONFIG);
+  attachZoomSync('historyChart',[],HISTORY_MAX_IDX);
+  attachShiftWheelPan('historyChart');
 }}
 
 // ---- 互動控制 ----
@@ -572,6 +640,7 @@ async function switchIndex(btn, symbol, label) {{
   const kline=await fetchKline(symbol);
   if(!kline) return;
   baseKData=kline;
+  currentIndexKData=kline;
   updateIndexHeader(kline);
   renderKline();
 }}
@@ -651,6 +720,10 @@ function backToMarket() {{
   document.getElementById('history-chart').style.display='block';
   document.getElementById('chart-main').style.display='none';
   document.querySelectorAll('.sector-row').forEach(r=>r.classList.remove('active'));
+  if(currentIndexKData) {{
+    baseKData=currentIndexKData;
+    renderKline();
+  }}
   renderHistory();
 }}
 
@@ -663,6 +736,7 @@ function backToMarket() {{
   const twii=await fetchKline('^TWII');
   if(twii) {{
     baseKData=twii;
+    currentIndexKData=twii;
     renderKline();
     const info=updateIndexHeader(twii);
     document.getElementById('f-twii-val').textContent=fmtIdxNum(info.price);
