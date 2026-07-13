@@ -102,7 +102,6 @@ def generate():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<meta http-equiv="refresh" content="60">
 <title>🇹🇼 台股族群每日監控</title>
 <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
 <style>
@@ -461,11 +460,10 @@ function renderKline() {{
     dragmode:'pan',
     xaxis:{{...DARK_LAYOUT.xaxis,rangeslider:{{visible:false}},type:'category',
       range:[0,d.dates.length-1],
-      constrain:'domain',
       tickmode:'array',
       tickvals:d.dates.filter((_,i)=>i%10===0),
       ticktext:d.dates.filter((_,i)=>i%10===0).map(x=>x.slice(5))}},
-    yaxis:{{...DARK_LAYOUT.yaxis}}
+    yaxis:{{...DARK_LAYOUT.yaxis,fixedrange:true}}
   }},PLOT_CONFIG);
 
   // KD
@@ -482,8 +480,8 @@ function renderKline() {{
   ],{{
     ...DARK_LAYOUT,
     margin:{{l:50,r:8,t:0,b:14}},
-    xaxis:{{...DARK_LAYOUT.xaxis,showticklabels:false,type:'category'}},
-    yaxis:{{...DARK_LAYOUT.yaxis,range:[0,100],dtick:40}}
+    xaxis:{{...DARK_LAYOUT.xaxis,showticklabels:false,type:'category',range:[0,d.dates.length-1]}},
+    yaxis:{{...DARK_LAYOUT.yaxis,range:[0,100],dtick:40,fixedrange:true}}
   }},PLOT_CONFIG);
 
   // 成交量
@@ -494,9 +492,43 @@ function renderKline() {{
   ],{{
     ...DARK_LAYOUT,
     margin:{{l:50,r:8,t:0,b:14}},
-    xaxis:{{...DARK_LAYOUT.xaxis,showticklabels:false,type:'category'}},
-    yaxis:{{...DARK_LAYOUT.yaxis,showticklabels:false}}
+    xaxis:{{...DARK_LAYOUT.xaxis,showticklabels:false,type:'category',range:[0,d.dates.length-1]}},
+    yaxis:{{...DARK_LAYOUT.yaxis,showticklabels:false,fixedrange:true}}
   }},PLOT_CONFIG);
+
+  attachZoomSync(d.dates);
+}}
+
+// K線縮放/平移時，限制在資料範圍內，並同步 KD、成交量副圖
+let _zoomSyncing = false;
+function attachZoomSync(dates) {{
+  const klineDiv = document.getElementById('klineChart');
+  const maxIdx = dates.length - 1;
+  klineDiv.removeAllListeners && klineDiv.removeAllListeners('plotly_relayout');
+  klineDiv.on('plotly_relayout', (ev) => {{
+    if(_zoomSyncing) return;
+    let x0 = ev['xaxis.range[0]'], x1 = ev['xaxis.range[1]'];
+    if(x0 === undefined && ev['xaxis.range']) {{ x0 = ev['xaxis.range'][0]; x1 = ev['xaxis.range'][1]; }}
+    if(x0 === undefined || x1 === undefined) return;
+
+    let nx0 = x0, nx1 = x1;
+    const width = nx1 - nx0;
+    if(width >= maxIdx) {{
+      nx0 = 0; nx1 = maxIdx;
+    }} else {{
+      if(nx0 < 0) {{ nx1 -= nx0; nx0 = 0; }}
+      if(nx1 > maxIdx) {{ nx0 -= (nx1 - maxIdx); nx1 = maxIdx; }}
+      if(nx0 < 0) nx0 = 0;
+    }}
+
+    _zoomSyncing = true;
+    if(Math.abs(nx0 - x0) > 1e-6 || Math.abs(nx1 - x1) > 1e-6) {{
+      Plotly.relayout(klineDiv, {{'xaxis.range':[nx0,nx1]}});
+    }}
+    Plotly.relayout('kdChart', {{'xaxis.range':[nx0,nx1]}});
+    Plotly.relayout('volChart', {{'xaxis.range':[nx0,nx1]}});
+    _zoomSyncing = false;
+  }});
 }}
 
 // 歷史趨勢圖
@@ -631,6 +663,7 @@ function backToMarket() {{
   const twii=await fetchKline('^TWII');
   if(twii) {{
     baseKData=twii;
+    renderKline();
     const info=updateIndexHeader(twii);
     document.getElementById('f-twii-val').textContent=fmtIdxNum(info.price);
     document.getElementById('f-twii-chg').textContent=`${{info.arrow}} ${{info.chg.toFixed(2)}}%`;
