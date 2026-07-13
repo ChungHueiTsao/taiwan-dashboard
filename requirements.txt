@@ -1,0 +1,10 @@
+yfinance
+pandas
+requests
+beautifulsoup4
+flask
+plotly
+apscheduler
+gunicorn
+python-dotenv
+pytz
