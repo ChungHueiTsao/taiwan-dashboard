@@ -2,15 +2,77 @@ import yfinance as yf
 import pandas as pd
 import json
 import os
+import base64
+import requests
 from datetime import datetime
 import pytz
 from config import SECTORS
 
 TAIPEI_TZ = pytz.timezone('Asia/Taipei')
 DATA_DIR = 'data'
+HIST_PATH = f'{DATA_DIR}/history.csv'
 
 def ensure_dirs():
     os.makedirs(DATA_DIR, exist_ok=True)
+
+def _github_config():
+    """讀取用來持久化 history.csv 的 GitHub 設定（未設定則停用此功能）"""
+    token = os.environ.get('GITHUB_TOKEN')
+    repo = os.environ.get('GITHUB_REPO')
+    if not token or not repo:
+        return None
+    return {
+        "token": token,
+        "repo": repo,
+        "branch": os.environ.get('GITHUB_BRANCH', 'master'),
+        "url": f"https://api.github.com/repos/{repo}/contents/data/history.csv"
+    }
+
+def restore_history_from_github():
+    """開機時若本機沒有 history.csv（免費方案磁碟不持久），從 GitHub repo 還原"""
+    if os.path.exists(HIST_PATH):
+        return
+    cfg = _github_config()
+    if not cfg:
+        return
+    try:
+        r = requests.get(cfg['url'], headers={"Authorization": f"token {cfg['token']}"},
+                          params={"ref": cfg['branch']}, timeout=10)
+        if r.status_code == 200:
+            ensure_dirs()
+            with open(HIST_PATH, 'wb') as f:
+                f.write(base64.b64decode(r.json()['content']))
+            print("✅ 已從 GitHub 還原歷史資料 data/history.csv")
+    except Exception as e:
+        print(f"⚠️  從 GitHub 還原歷史資料失敗: {e}")
+
+def push_history_to_github():
+    """把最新的 history.csv 推回 GitHub repo，避免免費方案重啟後資料遺失"""
+    cfg = _github_config()
+    if not cfg or not os.path.exists(HIST_PATH):
+        return
+    headers = {"Authorization": f"token {cfg['token']}"}
+    try:
+        with open(HIST_PATH, 'rb') as f:
+            content_b64 = base64.b64encode(f.read()).decode()
+        sha = None
+        r = requests.get(cfg['url'], headers=headers, params={"ref": cfg['branch']}, timeout=10)
+        if r.status_code == 200:
+            sha = r.json().get('sha')
+        payload = {
+            "message": f"chore: 更新歷史資料 {datetime.now(TAIPEI_TZ).strftime('%Y-%m-%d %H:%M')}",
+            "content": content_b64,
+            "branch": cfg['branch']
+        }
+        if sha:
+            payload["sha"] = sha
+        put_r = requests.put(cfg['url'], headers=headers, json=payload, timeout=15)
+        if put_r.status_code in (200, 201):
+            print("✅ 已將歷史資料同步回 GitHub")
+        else:
+            print(f"⚠️  同步歷史資料到 GitHub 失敗: {put_r.status_code} {put_r.text[:200]}")
+    except Exception as e:
+        print(f"⚠️  同步歷史資料到 GitHub 發生錯誤: {e}")
 
 def get_stock_data(symbol):
     """抓取單一股票資料與近一年K線"""
@@ -52,6 +114,7 @@ def get_stock_data(symbol):
 def collect_all():
     """抓取所有族群股票資料"""
     ensure_dirs()
+    restore_history_from_github()
     now = datetime.now(TAIPEI_TZ)
     print(f"\n🚀 開始抓取資料 {now.strftime('%Y/%m/%d %H:%M')}")
 
@@ -122,16 +185,17 @@ def collect_all():
     print(f"\n✅ 已儲存 data/latest.json")
 
     # 追加 history.csv
-    hist_path = f'{DATA_DIR}/history.csv'
     df_new = pd.DataFrame(history_rows)
-    if os.path.exists(hist_path):
-        df_old = pd.read_csv(hist_path)
+    if os.path.exists(HIST_PATH):
+        df_old = pd.read_csv(HIST_PATH)
         df_old = df_old[df_old['date'] != now.strftime('%Y-%m-%d')]
         df_combined = pd.concat([df_old, df_new], ignore_index=True)
     else:
         df_combined = df_new
-    df_combined.tail(20 * len(SECTORS)).to_csv(hist_path, index=False)
+    df_combined.tail(60 * len(SECTORS)).to_csv(HIST_PATH, index=False)
     print(f"✅ 已更新 data/history.csv")
+
+    push_history_to_github()
 
     return result
 
