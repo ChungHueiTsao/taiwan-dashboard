@@ -87,7 +87,7 @@ def generate():
         summary = f"{s['name']}族群今日平均{sign}{change:.2f}%，{s['rating']}。領漲個股為{s['top_stock']}（{'+' if s['top_change']>0 else ''}{s['top_change']:.2f}%），籌碼面建議留意法人動向與量能變化。"
 
         sector_rows_html += f"""
-        <div class="sector-row" onclick="selectSector(this,{json.dumps(s['name'])},{json.dumps(s['emoji'])},{json.dumps(s['rating'])},{json.dumps(summary)},{is_up},{json.dumps(stocks_js)})">
+        <div class="sector-row" onclick='selectSector(this,{json.dumps(s['name'])},{json.dumps(s['emoji'])},{json.dumps(s['rating'])},{json.dumps(summary)},{is_up},{json.dumps(stocks_js)})'>
           <span class="rank">{i+1}</span>
           <span class="name">{s['emoji']} {s['name']}</span>
           <span class="val" style="color:{color}">{sign}{change:.2f}%</span>
