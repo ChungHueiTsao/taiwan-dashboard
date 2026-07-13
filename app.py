@@ -7,6 +7,7 @@ import sys
 import json
 import requests
 import logging
+import threading
 from datetime import datetime
 
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -65,10 +66,11 @@ scheduler.add_job(
 scheduler.add_job(keep_alive, 'interval', minutes=14, id='keep_alive')
 scheduler.start()
 
-# 啟動時若無資料立刻執行一次
+# 啟動時若無資料，在背景執行完整更新，不阻擋網站上線（Render 免費方案磁碟不持久，
+# 每次重新部署都要重新抓一次，若同步等待會讓部署卡在健康檢查上好幾分鐘）
 if not os.path.exists('data/latest.json'):
-    logging.info("📦 初次啟動，立刻抓取資料...")
-    run_full_update()
+    logging.info("📦 初次啟動，背景抓取資料中...")
+    threading.Thread(target=run_full_update, daemon=True).start()
 
 @app.route('/')
 def index():

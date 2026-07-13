@@ -5,6 +5,7 @@ import os
 import base64
 import requests
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import pytz
 from config import SECTORS
 
@@ -126,17 +127,18 @@ def load_cached_kline(symbol):
         return None
 
 def collect_index_klines():
-    """抓取大盤三個 Tab 對應的指數K線（加權指數/OTC櫃買/台指期→用加權指數代替）"""
-    fetched = set()
-    for label, symbol in INDEX_SYMBOLS.items():
-        if symbol in fetched:
-            continue
-        kline = get_kline_history(symbol)
-        fetched.add(symbol)
-        if kline:
-            print(f"  ✅ {label}({symbol}) 指數K線已更新，共 {len(kline['dates'])} 筆")
-        else:
-            print(f"  ⚠️  {label}({symbol}) 指數K線抓取失敗")
+    """抓取大盤三個 Tab 對應的指數K線（加權指數/OTC櫃買/台指期→用加權指數代替），平行抓取加速"""
+    unique_symbols = list(dict.fromkeys(INDEX_SYMBOLS.values()))
+    labels = {v: k for k, v in INDEX_SYMBOLS.items()}
+    with ThreadPoolExecutor(max_workers=len(unique_symbols)) as executor:
+        futures = {executor.submit(get_kline_history, symbol): symbol for symbol in unique_symbols}
+        for future in as_completed(futures):
+            symbol = futures[future]
+            kline = future.result()
+            if kline:
+                print(f"  ✅ {labels[symbol]}({symbol}) 指數K線已更新，共 {len(kline['dates'])} 筆")
+            else:
+                print(f"  ⚠️  {labels[symbol]}({symbol}) 指數K線抓取失敗")
 
 # ---------------------------------------------------------------------------
 # 升級4：ATR + 支撐壓力 建議價格計算
@@ -307,6 +309,20 @@ def collect_all():
 
     inst_map = _load_institutional()
 
+    # 平行抓取所有股票資料（I/O bound，用 thread pool 大幅縮短抓取時間）
+    all_symbols = [symbol for info in SECTORS.values() for symbol in info['stocks']]
+    print(f"\n⏳ 平行抓取 {len(all_symbols)} 檔股票資料中...")
+    stock_results = {}
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(get_stock_data, symbol, inst_map): symbol for symbol in all_symbols}
+        for future in as_completed(futures):
+            symbol = futures[future]
+            try:
+                stock_results[symbol] = future.result()
+            except Exception as e:
+                print(f"  ⚠️  {symbol} 執行緒抓取例外: {e}")
+                stock_results[symbol] = None
+
     result = {
         "updated_at": now.strftime('%Y/%m/%d %H:%M'),
         "sectors": {}
@@ -321,7 +337,7 @@ def collect_all():
 
         for symbol in sector_info['stocks']:
             name = sector_info['names'].get(symbol, symbol)
-            data = get_stock_data(symbol, inst_map)
+            data = stock_results.get(symbol)
             if data:
                 stocks_data[symbol] = {
                     "name": name,
