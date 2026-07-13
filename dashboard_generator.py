@@ -287,11 +287,6 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
 
     <!-- 週期按鈕 -->
     <div class="period-row">
-      <button class="period-btn" onclick="setPeriod(this)">1分</button>
-      <button class="period-btn" onclick="setPeriod(this)">5分</button>
-      <button class="period-btn" onclick="setPeriod(this)">15分</button>
-      <button class="period-btn" onclick="setPeriod(this)">30分</button>
-      <button class="period-btn" onclick="setPeriod(this)">60分</button>
       <button class="period-btn active" onclick="setPeriod(this)">日</button>
       <button class="period-btn" onclick="setPeriod(this)">週</button>
       <button class="period-btn" onclick="setPeriod(this)">月</button>
@@ -414,10 +409,45 @@ function calcKD(h,l,c,n=9) {{
   return {{K,D}};
 }}
 
-let kData = genKlineData(60, 46892, 3800000000);
+let baseKData = genKlineData(60, 46892, 3800000000);
+let currentPeriod = '日';
+
+function aggregateData(base, period) {{
+  if(period==='日'||!base.dates||base.dates.length===0) return base;
+  const groupKey = (dateStr) => {{
+    if(period==='週') {{
+      const dt=new Date(dateStr);
+      const day=dt.getDay()||7;
+      dt.setDate(dt.getDate()-day+1);
+      return dt.toISOString().split('T')[0];
+    }}
+    return dateStr.slice(0,7);
+  }};
+  const groups={{}}; const order=[];
+  for(let i=0;i<base.dates.length;i++) {{
+    const key=groupKey(base.dates[i]);
+    if(!groups[key]) {{
+      groups[key]={{o:base.o[i],h:base.h[i],l:base.l[i],c:base.c[i],v:base.v[i],firstDate:base.dates[i]}};
+      order.push(key);
+    }} else {{
+      const g=groups[key];
+      g.h=Math.max(g.h,base.h[i]);
+      g.l=Math.min(g.l,base.l[i]);
+      g.c=base.c[i];
+      g.v+=base.v[i];
+    }}
+  }}
+  const dates=[],o=[],h=[],l=[],c=[],v=[],colors=[];
+  order.forEach(key=>{{
+    const g=groups[key];
+    dates.push(g.firstDate); o.push(g.o); h.push(g.h); l.push(g.l); c.push(g.c); v.push(g.v);
+    colors.push(g.c>=g.o?'#ff4444':'#22c55e');
+  }});
+  return {{dates,o,h,l,c,v,colors}};
+}}
 
 function renderKline() {{
-  const d=kData;
+  const d=aggregateData(baseKData,currentPeriod);
   const boll=calcBoll(d.c); const kd=calcKD(d.h,d.l,d.c);
   const ma5=calcMA(d.c,5),ma20=calcMA(d.c,20),ma60=calcMA(d.c,60);
 
@@ -497,14 +527,14 @@ function switchIndex(btn, name, price, chg, chgColor, open, high, low, vol) {{
   chgEl.textContent=chg; chgEl.style.color=chgColor;
   document.getElementById('idx-ohlc').innerHTML=
     `<span>開 ${{open}}</span><span>高 ${{high}}</span><span>低 ${{low}}</span><span>量 ${{vol}}</span>`;
-  kData=genKlineData(60,parseFloat(price.replace(',','')),3800000000);
+  baseKData=genKlineData(60,parseFloat(price.replace(',','')),3800000000);
   renderKline();
 }}
 
 function setPeriod(btn) {{
   document.querySelectorAll('.period-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
-  const periods={{'1分':1,'5分':5,'15分':15,'30分':30,'60分':60,'日':1,'週':1,'月':1}};
+  currentPeriod=btn.textContent;
   renderKline();
 }}
 
@@ -559,10 +589,10 @@ function selectStock(s, btn, isUp) {{
   document.getElementById('s-action-note').textContent=s.actionNote;
   const real=STOCK_KLINE[s.sym];
   if(real&&real.dates&&real.dates.length>1) {{
-    kData={{dates:real.dates,o:real.o,h:real.h,l:real.l,c:real.c,v:real.v,colors:real.colors}};
+    baseKData={{dates:real.dates,o:real.o,h:real.h,l:real.l,c:real.c,v:real.v,colors:real.colors}};
   }} else {{
     const base=parseFloat(s.price)||10000;
-    kData=genKlineData(60,base,Math.floor(3000000+Math.random()*5000000));
+    baseKData=genKlineData(60,base,Math.floor(3000000+Math.random()*5000000));
   }}
   renderKline();
 }}
