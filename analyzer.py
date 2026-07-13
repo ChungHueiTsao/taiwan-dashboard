@@ -5,6 +5,14 @@ import pytz
 
 TAIPEI_TZ = pytz.timezone('Asia/Taipei')
 
+def _load_institutional():
+    """讀取三大法人買賣超資料（升級5），沒有檔案就回傳空字典，不影響其餘分析"""
+    try:
+        with open('data/institutional.json', 'r', encoding='utf-8') as f:
+            return json.load(f).get('stocks', {})
+    except Exception:
+        return {}
+
 def get_rating(avg_change):
     if avg_change > 2.0:
         return "🔥🔥 超強勢"
@@ -36,6 +44,8 @@ def analyze():
         print(f"❌ 讀取 latest.json 失敗: {e}")
         return
 
+    inst_map = _load_institutional()
+
     sectors = data.get('sectors', {})
     analyzed = []
     up_count = 0
@@ -45,16 +55,33 @@ def analyze():
         rating = get_rating(avg)
         if avg > 0:
             up_count += 1
+
+        stocks = info.get('stocks', {})
+        has_inst_buy = False
+        for symbol, stock in stocks.items():
+            bare_code = symbol.replace('.TWO', '').replace('.TW', '')
+            inst = inst_map.get(bare_code)
+            if inst:
+                stock.setdefault('inst_signal', inst.get('inst_signal', '中性'))
+                stock.setdefault('foreign_5d', inst.get('foreign_5d', 0))
+                stock.setdefault('trust_5d', inst.get('trust_5d', 0))
+            if stock.get('inst_signal') == '法人同買':
+                has_inst_buy = True
+
+        score = info.get('score', 50)
+        if has_inst_buy:
+            score = min(100, score + 5)
+
         analyzed.append({
             "name": name,
             "emoji": info.get('emoji', ''),
             "avg_change": avg,
-            "score": info.get('score', 50),
+            "score": score,
             "rating": rating,
             "top_stock": info.get('top_stock', '-'),
             "top_change": info.get('top_change', 0),
             "bot_stock": info.get('bot_stock', '-'),
-            "stocks": info.get('stocks', {})
+            "stocks": stocks
         })
 
     # 由強到弱排序

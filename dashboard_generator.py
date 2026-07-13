@@ -25,7 +25,6 @@ def generate():
 
     # 左側族群列表
     sector_rows_html = ""
-    kline_map = {}
     for i, s in enumerate(sectors):
         change = s['avg_change']
         color = "#ff4444" if change > 0 else "#22c55e"
@@ -33,7 +32,7 @@ def generate():
         score_pct = max(3, min(97, s['score']))
         is_up = "true" if change > 0 else "false"
 
-        # 個股資料 for JS
+        # 個股資料 for JS（進場/停損/目標/操作建議均由 data_collector.py 的 ATR+籌碼邏輯計算）
         stocks_js = []
         stock_items = list(s.get('stocks', {}).items())
         stock_items_sorted = sorted(stock_items, key=lambda x: x[1].get('change_pct', 0), reverse=True)
@@ -44,26 +43,11 @@ def generate():
             vr = sd.get('volume_ratio', 1.0)
             c_sign = "+" if c > 0 else ""
             c_color = "true" if c > 0 else "false"
-            # 簡單建議計算
-            entry_low = round(p * 0.98, 1)
-            entry_high = round(p * 1.01, 1)
-            stop = round(p * 0.91, 1)
-            target = round(p * 1.15, 1)
-            if c > 2:
-                action = "強勢追進"
-                action_note = "放量突破可追"
-            elif c > 0.5:
-                action = "積極買進"
-                action_note = "趨勢偏多"
-            elif c > -0.5:
-                action = "觀察等待"
-                action_note = "整理格局"
-            else:
-                action = "暫時觀望"
-                action_note = "等止跌訊號"
 
-            if sd.get('kline'):
-                kline_map[sym] = sd['kline']
+            foreign_5d = sd.get('foreign_5d', 0)
+            trust_5d = sd.get('trust_5d', 0)
+            inst_signal = sd.get('inst_signal', '中性')
+            star = "⭐ " if inst_signal == "法人同買" else ""
 
             stocks_js.append({
                 "name": sd.get('name', sym),
@@ -73,14 +57,20 @@ def generate():
                 "chg": f"{c_sign}{c:.2f}%",
                 "vol": f"{v:,}",
                 "vr": f"{vr:.1f}",
-                "entry": f"{entry_low}～{entry_high}",
-                "stop": str(stop),
-                "target": str(target),
-                "action": action,
-                "entryNote": "回測支撐進場" if c > 0 else "反彈確認再進",
-                "stopNote": "跌破月線出場",
-                "targetNote": f"波段+15%目標",
-                "actionNote": action_note,
+                "entry": sd.get('entry', '-'),
+                "stop": sd.get('stop', '-'),
+                "target": sd.get('target', '-'),
+                "action": sd.get('action', '觀望'),
+                "entryNote": sd.get('entry_note', ''),
+                "stopNote": sd.get('stop_note', ''),
+                "targetNote": sd.get('target_note', ''),
+                "actionNote": sd.get('action_note', ''),
+                "foreignFmt": f"{'+' if foreign_5d>=0 else ''}{foreign_5d:,}張",
+                "trustFmt": f"{'+' if trust_5d>=0 else ''}{trust_5d:,}張",
+                "foreignUp": "true" if foreign_5d >= 0 else "false",
+                "trustUp": "true" if trust_5d >= 0 else "false",
+                "instSignal": inst_signal,
+                "star": star,
                 "up": c_color
             })
 
@@ -104,8 +94,6 @@ def generate():
             hd = history_data[name]
             color = colors[i % len(colors)]
             line_traces += f"""{{x:{json.dumps(hd['dates'])},y:{json.dumps(hd['scores'])},name:'{name}',type:'scatter',mode:'lines+markers',line:{{color:'{color}',width:1.5}},marker:{{color:'{color}',size:5}}}},"""
-
-    kline_map_json = json.dumps(kline_map, ensure_ascii=False)
 
     os.makedirs('templates', exist_ok=True)
 
@@ -164,7 +152,7 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
 .stock-tab.active-down{{background:#22c55e22;border-color:#22c55e66;color:#22c55e}}
 /* 個股資訊面板 */
 .stock-info-panel{{display:none;padding:6px 14px;border-bottom:1px solid #21262d;flex-shrink:0}}
-.info-grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:6px}}
+.info-grid{{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:6px}}
 .info-card{{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:5px 8px;text-align:center}}
 .ic-label{{font-size:9px;color:#8b949e}}
 .ic-val{{font-size:12px;font-weight:600;margin-top:1px}}
@@ -207,6 +195,7 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
   <h1>🇹🇼 台股族群每日監控</h1>
   <div class="meta">
     <span>最後更新：{updated_at}</span>
+    <span style="font-size:9px;color:#8b949e">（資料延遲約15分鐘）</span>
     <span class="badge" style="background:{sentiment['color']}22;color:{sentiment['color']};border:1px solid {sentiment['color']}44">{sentiment['label']}</span>
     <button class="btn-sm" onclick="location.href='/api/refresh?redirect=1'">🔄 立即更新</button>
   </div>
@@ -225,17 +214,17 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
     <!-- 大盤模式 Header -->
     <div class="right-header" id="market-header">
       <div class="idx-tabs">
-        <button class="idx-btn active" onclick="switchIndex(this,'加權指數','46,892','▼ 312 (-0.66%)','#22c55e','47,120','47,204','46,601','3,842億')">加權指數</button>
-        <button class="idx-btn" onclick="switchIndex(this,'OTC 櫃買','298.45','▼ 2.51 (-0.83%)','#22c55e','300.1','301.2','297.8','850億')">OTC 櫃買</button>
-        <button class="idx-btn" onclick="switchIndex(this,'台指期','46,750','▼ 330 (-0.70%)','#22c55e','47,080','47,150','46,520','12,845口')">台指期</button>
+        <button class="idx-btn active" onclick="switchIndex(this,'^TWII','加權指數')">加權指數</button>
+        <button class="idx-btn" onclick="switchIndex(this,'^TWOII','OTC 櫃買')">OTC 櫃買</button>
+        <button class="idx-btn" onclick="switchIndex(this,'^TWII','台指期')">台指期</button>
       </div>
       <div class="idx-val">
-        <span class="big" id="idx-price">46,892</span>
-        <span id="idx-chg" style="font-size:12px;font-weight:600;color:#22c55e">▼ 312 (-0.66%)</span>
+        <span class="big" id="idx-price">-</span>
+        <span id="idx-chg" style="font-size:12px;font-weight:600;color:#8b949e">載入中...</span>
         <span style="font-size:10px;color:#8b949e">{updated_at}</span>
       </div>
       <div class="ohlc" id="idx-ohlc">
-        <span>開 47,120</span><span>高 47,204</span><span>低 46,601</span><span>量 3,842億</span>
+        <span>開 -</span><span>高 -</span><span>低 -</span><span>量 -</span>
       </div>
     </div>
 
@@ -260,6 +249,8 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
         <div class="info-card"><div class="ic-label">漲跌幅</div><div class="ic-val" id="s-chg">-</div></div>
         <div class="info-card"><div class="ic-label">成交量</div><div class="ic-val" id="s-vol">-</div></div>
         <div class="info-card"><div class="ic-label">量比</div><div class="ic-val" id="s-vr">-</div></div>
+        <div class="info-card"><div class="ic-label">外資5日</div><div class="ic-val" id="s-foreign">-</div></div>
+        <div class="info-card"><div class="ic-label">投信5日</div><div class="ic-val" id="s-trust">-</div></div>
       </div>
       <div class="suggest-box">
         <div class="suggest-item">
@@ -328,26 +319,25 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
     <div class="idx-footer">
       <div class="idx-footer-card" style="border-top:2px solid #58a6ff">
         <div class="f-name">加權指數</div>
-        <div class="f-val">46,892</div>
-        <div class="f-chg" style="color:#22c55e">▼ -0.66%</div>
+        <div class="f-val" id="f-twii-val">-</div>
+        <div class="f-chg" id="f-twii-chg">-</div>
       </div>
       <div class="idx-footer-card">
         <div class="f-name">OTC 櫃買</div>
-        <div class="f-val">298.45</div>
-        <div class="f-chg" style="color:#22c55e">▼ -0.83%</div>
+        <div class="f-val" id="f-twoii-val">-</div>
+        <div class="f-chg" id="f-twoii-chg">-</div>
       </div>
       <div class="idx-footer-card">
         <div class="f-name">台指期</div>
-        <div class="f-val">46,750</div>
-        <div class="f-chg" style="color:#22c55e">▼ -0.70%</div>
+        <div class="f-val" id="f-fut-val">-</div>
+        <div class="f-chg" id="f-fut-chg">-</div>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-const STOCK_KLINE = {kline_map_json};
-const PLOT_CONFIG = {{responsive:true,displayModeBar:false}};
+const PLOT_CONFIG = {{responsive:true,displayModeBar:false,scrollZoom:true}};
 const DARK_LAYOUT = {{
   paper_bgcolor:'#0d1117',plot_bgcolor:'#0d1117',
   font:{{color:'#8b949e',size:10}},
@@ -356,26 +346,27 @@ const DARK_LAYOUT = {{
   yaxis:{{gridcolor:'#21262d',showgrid:true,zeroline:false,side:'right'}}
 }};
 
-// ---- 模擬 K 線資料 ----
-function genKlineData(n, base, vol) {{
-  const dates=[],o=[],h=[],l=[],c=[],v=[],colors=[];
-  let p=base;
-  const now=new Date();
-  for(let i=n;i>=0;i--) {{
-    const d=new Date(now); d.setDate(d.getDate()-i);
-    if(d.getDay()===0||d.getDay()===6) continue;
-    dates.push(d.toISOString().split('T')[0]);
-    const chg=(Math.random()-0.5)*0.04;
-    const op=p; const cl=+(p*(1+chg)).toFixed(1);
-    const hi=+(Math.max(op,cl)*(1+Math.random()*0.01)).toFixed(1);
-    const lo=+(Math.min(op,cl)*(1-Math.random()*0.01)).toFixed(1);
-    o.push(op); h.push(hi); l.push(lo); c.push(cl);
-    colors.push(cl>=op?'#ff4444':'#22c55e');
-    v.push(Math.floor(vol*(0.5+Math.random())));
-    p=cl;
+// ---- 真實K線資料（透過 /api/kline/<symbol> 取得，取代模擬資料）----
+const klineCache = {{}};
+async function fetchKline(symbol) {{
+  if(klineCache[symbol]) return klineCache[symbol];
+  try {{
+    const res = await fetch('/api/kline/' + encodeURIComponent(symbol));
+    if(!res.ok) return null;
+    const data = await res.json();
+    if(!data.dates || data.dates.length === 0) return null;
+    const result = {{
+      dates: data.dates, o: data.open, h: data.high, l: data.low, c: data.close, v: data.volume,
+      colors: data.close.map((c,i)=> c >= data.open[i] ? '#ff4444' : '#22c55e')
+    }};
+    klineCache[symbol] = result;
+    return result;
+  }} catch(e) {{
+    console.error('K線資料取得失敗', symbol, e);
+    return null;
   }}
-  return {{dates,o,h,l,c,v,colors}};
 }}
+const EMPTY_KLINE = {{dates:[],o:[],h:[],l:[],c:[],v:[],colors:[]}};
 
 function calcMA(data, n) {{
   return data.map((v,i,a)=>i<n-1?null:a.slice(i-n+1,i+1).reduce((s,x)=>s+x,0)/n);
@@ -409,7 +400,7 @@ function calcKD(h,l,c,n=9) {{
   return {{K,D}};
 }}
 
-let baseKData = genKlineData(60, 46892, 3800000000);
+let baseKData = EMPTY_KLINE;
 let currentPeriod = '日';
 
 function aggregateData(base, period) {{
@@ -448,6 +439,7 @@ function aggregateData(base, period) {{
 
 function renderKline() {{
   const d=aggregateData(baseKData,currentPeriod);
+  if(!d.dates||d.dates.length===0) return;
   const boll=calcBoll(d.c); const kd=calcKD(d.h,d.l,d.c);
   const ma5=calcMA(d.c,5),ma20=calcMA(d.c,20),ma60=calcMA(d.c,60);
 
@@ -466,7 +458,10 @@ function renderKline() {{
     ...DARK_LAYOUT,
     margin:{{l:50,r:8,t:4,b:20}},
     showlegend:false,
+    dragmode:'pan',
     xaxis:{{...DARK_LAYOUT.xaxis,rangeslider:{{visible:false}},type:'category',
+      range:[0,d.dates.length-1],
+      constrain:'domain',
       tickmode:'array',
       tickvals:d.dates.filter((_,i)=>i%10===0),
       ticktext:d.dates.filter((_,i)=>i%10===0).map(x=>x.slice(5))}},
@@ -519,15 +514,33 @@ function renderHistory() {{
 }}
 
 // ---- 互動控制 ----
-function switchIndex(btn, name, price, chg, chgColor, open, high, low, vol) {{
+function fmtIdxNum(n) {{ return n.toLocaleString('zh-TW',{{maximumFractionDigits:2}}); }}
+
+function updateIndexHeader(kline) {{
+  const n=kline.c.length;
+  const price=kline.c[n-1];
+  const prev=n>1?kline.c[n-2]:price;
+  const chg=prev?((price-prev)/prev*100):0;
+  const diff=price-prev;
+  const up=chg>=0;
+  const color=up?'#ff4444':'#22c55e';
+  const arrow=up?'▲':'▼';
+  document.getElementById('idx-price').textContent=fmtIdxNum(price);
+  const chgEl=document.getElementById('idx-chg');
+  chgEl.textContent=`${{arrow}} ${{fmtIdxNum(Math.abs(diff))}} (${{chg.toFixed(2)}}%)`;
+  chgEl.style.color=color;
+  document.getElementById('idx-ohlc').innerHTML=
+    `<span>開 ${{fmtIdxNum(kline.o[n-1])}}</span><span>高 ${{fmtIdxNum(kline.h[n-1])}}</span><span>低 ${{fmtIdxNum(kline.l[n-1])}}</span><span>量 ${{kline.v[n-1].toLocaleString()}}</span>`;
+  return {{price,chg,color,arrow}};
+}}
+
+async function switchIndex(btn, symbol, label) {{
   document.querySelectorAll('.idx-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
-  document.getElementById('idx-price').textContent=price;
-  const chgEl=document.getElementById('idx-chg');
-  chgEl.textContent=chg; chgEl.style.color=chgColor;
-  document.getElementById('idx-ohlc').innerHTML=
-    `<span>開 ${{open}}</span><span>高 ${{high}}</span><span>低 ${{low}}</span><span>量 ${{vol}}</span>`;
-  baseKData=genKlineData(60,parseFloat(price.replace(',','')),3800000000);
+  const kline=await fetchKline(symbol);
+  if(!kline) return;
+  baseKData=kline;
+  updateIndexHeader(kline);
   renderKline();
 }}
 
@@ -562,7 +575,7 @@ function selectSector(el, name, emoji, rating, summary, isUp, stocks) {{
     const btn=document.createElement('button');
     const isUp2=s.up==='true';
     btn.className='stock-tab'+(i===0?(isUp2?' active-up':' active-down'):'');
-    btn.textContent=s.name+' '+s.chg;
+    btn.textContent=(s.star||'')+s.name+' '+s.chg;
     btn.onclick=()=>selectStock(s,btn,isUp2);
     tabsEl.appendChild(btn);
   }});
@@ -571,7 +584,7 @@ function selectSector(el, name, emoji, rating, summary, isUp, stocks) {{
   if(stocks&&stocks.length>0) selectStock(stocks[0],tabsEl.firstChild,stocks[0].up==='true');
 }}
 
-function selectStock(s, btn, isUp) {{
+async function selectStock(s, btn, isUp) {{
   document.querySelectorAll('.stock-tab').forEach(t=>{{t.classList.remove('active-up');t.classList.remove('active-down');}});
   if(btn) btn.classList.add(isUp?'active-up':'active-down');
   document.getElementById('s-price').textContent=s.price;
@@ -585,15 +598,17 @@ function selectStock(s, btn, isUp) {{
   document.getElementById('s-stop-note').textContent=s.stopNote;
   document.getElementById('s-target').textContent=s.target;
   document.getElementById('s-target-note').textContent=s.targetNote;
-  document.getElementById('s-action').textContent=s.action;
+  document.getElementById('s-action').textContent=(s.star||'')+s.action;
   document.getElementById('s-action-note').textContent=s.actionNote;
-  const real=STOCK_KLINE[s.sym];
-  if(real&&real.dates&&real.dates.length>1) {{
-    baseKData={{dates:real.dates,o:real.o,h:real.h,l:real.l,c:real.c,v:real.v,colors:real.colors}};
-  }} else {{
-    const base=parseFloat(s.price)||10000;
-    baseKData=genKlineData(60,base,Math.floor(3000000+Math.random()*5000000));
-  }}
+  const foreignEl=document.getElementById('s-foreign');
+  foreignEl.textContent=s.foreignFmt||'-';
+  foreignEl.style.color=s.foreignUp==='true'?'#ff4444':'#22c55e';
+  const trustEl=document.getElementById('s-trust');
+  trustEl.textContent=s.trustFmt||'-';
+  trustEl.style.color=s.trustUp==='true'?'#ff4444':'#22c55e';
+
+  const kline=await fetchKline(s.sym);
+  baseKData=kline||EMPTY_KLINE;
   renderKline();
 }}
 
@@ -607,12 +622,36 @@ function backToMarket() {{
   renderHistory();
 }}
 
-// 初始化
-renderKline();
-// 預設大盤模式顯示歷史趨勢
-document.getElementById('chart-main').style.display='none';
-document.getElementById('history-chart').style.display='block';
-renderHistory();
+// 初始化：抓取大盤指數真實資料，並顯示歷史趨勢圖
+(async () => {{
+  document.getElementById('chart-main').style.display='none';
+  document.getElementById('history-chart').style.display='block';
+  renderHistory();
+
+  const twii=await fetchKline('^TWII');
+  if(twii) {{
+    baseKData=twii;
+    const info=updateIndexHeader(twii);
+    document.getElementById('f-twii-val').textContent=fmtIdxNum(info.price);
+    document.getElementById('f-twii-chg').textContent=`${{info.arrow}} ${{info.chg.toFixed(2)}}%`;
+    document.getElementById('f-twii-chg').style.color=info.color;
+    document.getElementById('f-fut-val').textContent=fmtIdxNum(info.price);
+    document.getElementById('f-fut-chg').textContent=`${{info.arrow}} ${{info.chg.toFixed(2)}}%`;
+    document.getElementById('f-fut-chg').style.color=info.color;
+  }}
+  const twoii=await fetchKline('^TWOII');
+  if(twoii) {{
+    const n=twoii.c.length;
+    const price=twoii.c[n-1];
+    const prev=n>1?twoii.c[n-2]:price;
+    const chg=prev?((price-prev)/prev*100):0;
+    const color=chg>=0?'#ff4444':'#22c55e';
+    const arrow=chg>=0?'▲':'▼';
+    document.getElementById('f-twoii-val').textContent=fmtIdxNum(price);
+    document.getElementById('f-twoii-chg').textContent=`${{arrow}} ${{chg.toFixed(2)}}%`;
+    document.getElementById('f-twoii-chg').style.color=color;
+  }}
+}})();
 </script>
 </body>
 </html>"""

@@ -20,15 +20,31 @@ TAIPEI_TZ = pytz.timezone('Asia/Taipei')
 def run_full_update():
     logging.info("🚀 開始完整更新...")
     try:
+        from institutional_collector import collect as collect_institutional
         from data_collector import collect_all
         from analyzer import analyze
         from dashboard_generator import generate
+        collect_institutional()
         collect_all()
         analyze()
         generate()
         logging.info("✅ 更新完成")
     except Exception as e:
         logging.error(f"❌ 更新失敗: {e}")
+
+def refresh_now():
+    """/api/refresh 用：只用盤中分時資料更新現價，不重抓整年K線（比 run_full_update 快很多）"""
+    logging.info("⏱️  開始盤中即時更新...")
+    try:
+        from data_collector import refresh_intraday_prices
+        from analyzer import analyze
+        from dashboard_generator import generate
+        refresh_intraday_prices()
+        analyze()
+        generate()
+        logging.info("✅ 盤中更新完成")
+    except Exception as e:
+        logging.error(f"❌ 盤中更新失敗: {e}")
 
 def keep_alive():
     try:
@@ -72,10 +88,20 @@ def api_data():
 @app.route('/api/refresh')
 def api_refresh():
     redirect_after = 'redirect' in request.args if hasattr(request, 'args') else False
-    run_full_update()
+    refresh_now()
     if redirect_after:
         return redirect('/')
     return jsonify({"status": "ok", "message": "更新完成", "time": datetime.now(TAIPEI_TZ).strftime('%Y/%m/%d %H:%M')})
+
+@app.route('/api/kline/<symbol>')
+def api_kline(symbol):
+    from data_collector import load_cached_kline, get_kline_history
+    kline = load_cached_kline(symbol)
+    if not kline:
+        kline = get_kline_history(symbol)
+    if not kline:
+        return jsonify({"error": f"{symbol} 無法取得K線資料"}), 404
+    return jsonify(kline)
 
 @app.route('/health')
 def health():
