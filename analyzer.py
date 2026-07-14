@@ -93,6 +93,7 @@ def analyze():
 
     result = {
         "updated_at": data.get('updated_at', ''),
+        "data_source": data.get('data_source', 'yfinance'),
         "market_sentiment": sentiment,
         "up_count": up_count,
         "flat_count": flat_count,

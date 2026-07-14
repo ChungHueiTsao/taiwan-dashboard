@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, render_template, redirect, request
+from flask import Flask, jsonify, redirect, request
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import pytz
@@ -53,19 +53,20 @@ def run_full_update():
         logging.error(f"❌ 更新失敗: {e}")
 
 def refresh_now():
-    """/api/refresh 用：盤中時段只更新現價（快），非盤中時段跑完整更新（含重抓K線）"""
+    """/api/refresh 用：盤中時段用 TWSE MIS 即時報價更新現價（延遲約5秒，快且準），
+    連續失敗會自動退回 yfinance 分時資料；非盤中時段跑完整更新（含重抓K線）"""
     if is_market_hours():
-        logging.info("⏱️  盤中時段，開始盤中即時更新...")
+        logging.info("📡 盤中時段，開始即時報價更新...")
         try:
-            from data_collector import refresh_intraday_prices
+            from data_collector import refresh_realtime_prices
             from analyzer import analyze
             from dashboard_generator import generate
-            refresh_intraday_prices()
+            refresh_realtime_prices()
             analyze()
             generate()
-            logging.info("✅ 盤中更新完成")
+            logging.info("✅ 即時報價更新完成")
         except Exception as e:
-            logging.error(f"❌ 盤中更新失敗: {e}")
+            logging.error(f"❌ 即時報價更新失敗: {e}")
     else:
         logging.info("🌙 非盤中時段，改跑完整更新...")
         run_full_update()
@@ -97,9 +98,13 @@ if not os.path.exists('data/latest.json'):
 
 @app.route('/')
 def index():
+    # dashboard_generator.py 產出的是完整靜態 HTML（沒有 Jinja2 語法），直接讀檔而不用
+    # render_template：Flask 在 debug=False 時預設不會自動偵測模板檔案變動，用
+    # render_template 會一直快取「第一次讀到」的內容，之後每次更新資料都不會反映到頁面上
     try:
-        return render_template('index.html')
-    except:
+        with open('templates/index.html', 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception:
         return "<h1>儀表板載入中，請稍後重新整理...</h1>", 503
 
 @app.route('/api/data')

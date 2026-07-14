@@ -347,6 +347,7 @@ def collect_all():
 
     result = {
         "updated_at": now.strftime('%Y/%m/%d %H:%M'),
+        "data_source": "yfinance-daily",
         "sectors": {}
     }
 
@@ -482,9 +483,97 @@ def refresh_intraday_prices():
                 sector_info['bot_stock'] = sorted_stocks[-1][1]['name']
 
     result['updated_at'] = now.strftime('%Y/%m/%d %H:%M')
+    result['data_source'] = 'yfinance-intraday'
     with open(f'{DATA_DIR}/latest.json', 'w', encoding='utf-8') as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
     print(f"✅ 已更新 data/latest.json（盤中即時價）")
+
+    return result
+
+# ---------------------------------------------------------------------------
+# TWSE MIS 即時報價（延遲約5秒，比 yfinance 更即時；連續失敗會自動退回 yfinance）
+# ---------------------------------------------------------------------------
+
+def _patch_index_kline_with_quote(alias, quote):
+    """把大盤指數的即時報價更新進K線快取的最新一筆（沒有今天的資料就新增一筆），
+    讓 /api/kline 與大盤 header 顯示的價格也能反映盤中最新報價"""
+    kline = load_cached_kline(alias)
+    if not kline or not kline.get('close'):
+        return
+    today_str = datetime.now(TAIPEI_TZ).strftime('%Y-%m-%d')
+    price = quote['price']
+    if kline['dates'][-1] == today_str:
+        kline['close'][-1] = price
+        kline['high'][-1] = max(kline['high'][-1], price)
+        kline['low'][-1] = min(kline['low'][-1], price)
+    else:
+        kline['dates'].append(today_str)
+        kline['open'].append(price)
+        kline['high'].append(price)
+        kline['low'].append(price)
+        kline['close'].append(price)
+        kline['volume'].append(0)
+    save_kline(kline, alias)
+
+def refresh_realtime_prices():
+    """盤中用 TWSE MIS 即時報價更新現價（延遲約5秒），比 yfinance 更即時。
+    連續失敗達上限時自動退回 refresh_intraday_prices()（yfinance 模式）"""
+    import realtime_quotes as rq
+    ensure_dirs()
+    if not os.path.exists(f'{DATA_DIR}/latest.json'):
+        return collect_all()
+
+    with open(f'{DATA_DIR}/latest.json', 'r', encoding='utf-8') as f:
+        result = json.load(f)
+
+    now = datetime.now(TAIPEI_TZ)
+    print(f"\n📡 盤中即時報價更新 {now.strftime('%Y/%m/%d %H:%M')}")
+
+    all_symbols = [sym for s in result.get('sectors', {}).values() for sym in s.get('stocks', {}).keys()]
+    quotes = rq.fetch_quotes(all_symbols)
+
+    if rq.is_fallback_active():
+        print("⚠️  MIS 即時報價已連續失敗，退回 yfinance 模式")
+        return refresh_intraday_prices()
+
+    updated_count = 0
+    for sector_name, sector_info in result.get('sectors', {}).items():
+        changes = []
+        for symbol, stock in sector_info.get('stocks', {}).items():
+            q = quotes.get(symbol)
+            if q:
+                stock['price'] = q['price']
+                stock['change_pct'] = q['change_pct']
+                stock['volume'] = q['volume']
+                updated_count += 1
+                print(f"  📡 {stock.get('name', symbol)}: {q['price']} ({q['change_pct']:+.2f}%) @{q['time']}")
+            changes.append(stock.get('change_pct', 0))
+
+        if changes:
+            avg_change = round(sum(changes) / len(changes), 2)
+            sector_info['avg_change'] = avg_change
+            sector_info['score'] = min(100, max(0, int(50 + avg_change * 10)))
+            sorted_stocks = sorted(
+                [(s, d) for s, d in sector_info['stocks'].items() if d['price'] > 0],
+                key=lambda x: x[1]['change_pct'],
+                reverse=True
+            )
+            if sorted_stocks:
+                sector_info['top_stock'] = sorted_stocks[0][1]['name']
+                sector_info['top_change'] = sorted_stocks[0][1]['change_pct']
+                sector_info['bot_stock'] = sorted_stocks[-1][1]['name']
+
+    index_quotes = rq.fetch_index_quotes()
+    for alias, quote in index_quotes.items():
+        _patch_index_kline_with_quote(alias, quote)
+    if 'TWII' in index_quotes:
+        _patch_index_kline_with_quote('TAIFEX', index_quotes['TWII'])
+
+    result['updated_at'] = now.strftime('%Y/%m/%d %H:%M')
+    result['data_source'] = 'realtime'
+    with open(f'{DATA_DIR}/latest.json', 'w', encoding='utf-8') as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    print(f"✅ 已更新 {updated_count}/{len(all_symbols)} 檔即時報價，{len(index_quotes)} 檔大盤指數")
 
     return result
 

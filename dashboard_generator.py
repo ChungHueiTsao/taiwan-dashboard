@@ -22,6 +22,8 @@ def generate():
     sectors = analysis.get('sectors', [])
     updated_at = analysis.get('updated_at', '載入中')
     sentiment = analysis.get('market_sentiment', {"label": "🟡 中性", "color": "#eab308"})
+    data_source = analysis.get('data_source', 'yfinance')
+    delay_note = "盤中即時（延遲約5秒）" if data_source == 'realtime' else "資料延遲約15分鐘"
 
     # 左側族群列表
     sector_rows_html = ""
@@ -195,7 +197,7 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
   <h1>🇹🇼 台股族群每日監控</h1>
   <div class="meta">
     <span>最後更新：{updated_at}</span>
-    <span style="font-size:9px;color:#8b949e">（資料延遲約15分鐘）</span>
+    <span style="font-size:9px;color:#8b949e">（{delay_note}）</span>
     <span class="badge" style="background:{sentiment['color']}22;color:{sentiment['color']};border:1px solid {sentiment['color']}44">{sentiment['label']}</span>
     <button class="btn-sm" onclick="location.href='/api/refresh?redirect=1'">🔄 立即更新</button>
   </div>
