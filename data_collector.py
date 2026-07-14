@@ -99,13 +99,19 @@ def get_kline_history(symbol, period='1y'):
         hist = ticker.history(period=period)
         if hist.empty:
             return None
+        # 少數交易日資料缺漏（開高低收 NaN）直接丟棄該日；成交量缺漏（常見於指數）補0，
+        # 避免 int(NaN) 造成整個更新流程崩潰
+        hist = hist.dropna(subset=['Open', 'High', 'Low', 'Close'])
+        if hist.empty:
+            return None
+        volume = hist['Volume'].fillna(0)
         kline = {
             "dates": hist.index.strftime('%Y-%m-%d').tolist(),
             "open": [round(float(x), 2) for x in hist['Open']],
             "high": [round(float(x), 2) for x in hist['High']],
             "low": [round(float(x), 2) for x in hist['Low']],
             "close": [round(float(x), 2) for x in hist['Close']],
-            "volume": [int(x) for x in hist['Volume']]
+            "volume": [int(x) for x in volume]
         }
         ensure_dirs()
         with open(_kline_path(symbol), 'w', encoding='utf-8') as f:
