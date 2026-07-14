@@ -170,11 +170,16 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
 .ind-row{{display:flex;gap:6px;font-size:9px;color:#8b949e;margin-left:auto;flex-wrap:wrap}}
 .dot{{width:8px;height:3px;border-radius:2px;display:inline-block;vertical-align:middle;margin-right:2px}}
 /* 圖表區 */
-.chart-main{{flex:1;padding:4px 14px 0;min-height:0}}
+.chart-main{{flex:1;padding:4px 14px 0;min-height:0;display:flex;flex-direction:column}}
+.kline-info-bar{{display:flex;gap:10px;flex-wrap:wrap;font-size:10px;color:#8b949e;padding:2px 0 4px;flex-shrink:0}}
+.kline-info-bar b{{color:#e6edf3;font-weight:600}}
 .chart-kd{{padding:0 14px;height:54px;border-top:1px solid #21262d;flex-shrink:0}}
-.chart-kd-label{{font-size:9px;color:#8b949e;padding:2px 0}}
+.chart-kd-label{{display:flex;gap:10px;font-size:9px;color:#8b949e;padding:2px 0}}
+.chart-kd-label b{{color:#e6edf3;font-weight:600}}
 .chart-vol{{padding:0 14px;height:50px;border-top:1px solid #21262d;flex-shrink:0}}
-.chart-vol-label{{font-size:9px;color:#8b949e;padding:2px 0}}
+.chart-vol-label{{display:flex;gap:10px;font-size:9px;color:#8b949e;padding:2px 0}}
+.chart-vol-label b{{color:#e6edf3;font-weight:600}}
+#klineChart .hoverlayer,#kdChart .hoverlayer,#volChart .hoverlayer{{display:none}}
 /* 歷史趨勢區（大盤模式） */
 .history-chart{{padding:4px 14px;flex:1;min-height:0;display:none}}
 /* 底部快覽 */
@@ -293,7 +298,19 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
 
     <!-- K線主圖 -->
     <div class="chart-main" id="chart-main">
-      <div id="klineChart" style="width:100%;height:100%"></div>
+      <div class="kline-info-bar" id="kline-info-bar">
+        <span id="ki-date">-</span>
+        <span>開 <b id="ki-open">-</b></span>
+        <span>高 <b id="ki-high">-</b></span>
+        <span>低 <b id="ki-low">-</b></span>
+        <span>收 <b id="ki-close">-</b></span>
+        <span style="color:#f97316">MA5 <b id="ki-ma5">-</b></span>
+        <span style="color:#58a6ff">MA20 <b id="ki-ma20">-</b></span>
+        <span style="color:#a855f7">MA60 <b id="ki-ma60">-</b></span>
+        <span style="color:#8b949e">布林上 <b id="ki-bollu">-</b></span>
+        <span style="color:#8b949e">布林下 <b id="ki-bolld">-</b></span>
+      </div>
+      <div id="klineChart" style="width:100%;flex:1;min-height:0"></div>
     </div>
 
     <!-- 歷史趨勢（大盤模式） -->
@@ -303,16 +320,20 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
 
     <!-- KD副圖 -->
     <div class="chart-kd">
-      <div class="chart-kd-label">KD &nbsp;
-        <span style="color:#f97316">K: <span id="kd-k">--</span></span>&nbsp;
-        <span style="color:#58a6ff">D: <span id="kd-d">--</span></span>
+      <div class="chart-kd-label" id="kd-info-bar">
+        <span id="kdi-date">-</span>
+        <span style="color:#f97316">K <b id="kdi-k">--</b></span>
+        <span style="color:#58a6ff">D <b id="kdi-d">--</b></span>
       </div>
       <div id="kdChart" style="width:100%;height:38px"></div>
     </div>
 
     <!-- 成交量副圖 -->
     <div class="chart-vol">
-      <div class="chart-vol-label">成交量 &nbsp;<span id="vol-label" style="color:#e6edf3">--</span></div>
+      <div class="chart-vol-label" id="vol-info-bar">
+        <span id="voli-date">-</span>
+        <span>成交量 <b id="voli-vol">--</b></span>
+      </div>
       <div id="volChart" style="width:100%;height:34px"></div>
     </div>
 
@@ -439,11 +460,36 @@ function aggregateData(base, period) {{
   return {{dates,o,h,l,c,v,colors}};
 }}
 
+let _klineInfo = null;
+function showKlineInfoAt(idx) {{
+  const info = _klineInfo;
+  if(!info || idx==null || idx<0 || idx>=info.dates.length) return;
+  const fmt = v => (v===null||v===undefined||isNaN(v)) ? '-' : (+v).toFixed(2);
+  document.getElementById('ki-date').textContent=info.dates[idx];
+  document.getElementById('ki-open').textContent=fmt(info.o[idx]);
+  document.getElementById('ki-high').textContent=fmt(info.h[idx]);
+  document.getElementById('ki-low').textContent=fmt(info.l[idx]);
+  document.getElementById('ki-close').textContent=fmt(info.c[idx]);
+  document.getElementById('ki-ma5').textContent=fmt(info.ma5[idx]);
+  document.getElementById('ki-ma20').textContent=fmt(info.ma20[idx]);
+  document.getElementById('ki-ma60').textContent=fmt(info.ma60[idx]);
+  document.getElementById('ki-bollu').textContent=fmt(info.bollU[idx]);
+  document.getElementById('ki-bolld').textContent=fmt(info.bollL[idx]);
+
+  document.getElementById('kdi-date').textContent=info.dates[idx];
+  document.getElementById('kdi-k').textContent=fmt(info.kdK[idx]);
+  document.getElementById('kdi-d').textContent=fmt(info.kdD[idx]);
+
+  document.getElementById('voli-date').textContent=info.dates[idx];
+  document.getElementById('voli-vol').textContent=(info.v[idx]/100000000).toFixed(2)+'億';
+}}
+
 function renderKline() {{
   const d=aggregateData(baseKData,currentPeriod);
   if(!d.dates||d.dates.length===0) return;
   const boll=calcBoll(d.c); const kd=calcKD(d.h,d.l,d.c);
   const ma5=calcMA(d.c,5),ma20=calcMA(d.c,20),ma60=calcMA(d.c,60);
+  _klineInfo = {{dates:d.dates,o:d.o,h:d.h,l:d.l,c:d.c,v:d.v,ma5,ma20,ma60,bollU:boll.upper,bollL:boll.lower,kdK:kd.K,kdD:kd.D}};
 
   // K線
   Plotly.newPlot('klineChart',[
@@ -471,9 +517,6 @@ function renderKline() {{
   }},PLOT_CONFIG);
 
   // KD
-  const lastK=kd.K[kd.K.length-1],lastD=kd.D[kd.D.length-1];
-  document.getElementById('kd-k').textContent=lastK;
-  document.getElementById('kd-d').textContent=lastD;
   Plotly.newPlot('kdChart',[
     {{x:d.dates,y:kd.K,type:'scatter',mode:'lines',line:{{color:'#f97316',width:1.2}},name:'K'}},
     {{x:d.dates,y:kd.D,type:'scatter',mode:'lines',line:{{color:'#58a6ff',width:1.2}},name:'D'}},
@@ -492,8 +535,6 @@ function renderKline() {{
   }},PLOT_CONFIG);
 
   // 成交量
-  const lastVol=d.v[d.v.length-1];
-  document.getElementById('vol-label').textContent=(lastVol/100000000).toFixed(0)+'億';
   Plotly.newPlot('volChart',[
     {{x:d.dates,y:d.v,type:'bar',marker:{{color:d.colors,opacity:0.8}}}}
   ],{{
@@ -509,6 +550,7 @@ function renderKline() {{
   attachZoomSync('klineChart',['kdChart','volChart'],d.dates.length-1);
   attachHoverSync(['klineChart','kdChart','volChart']);
   attachShiftWheelPan('klineChart');
+  showKlineInfoAt(d.dates.length-1);
 }}
 
 // 縮放/平移時，限制在資料範圍內，並把 X 軸同步給其他圖表
@@ -569,9 +611,11 @@ function attachHoverSync(chartIds) {{
     if(div._hoverSyncBound) return;
     div._hoverSyncBound = true;
     div.on('plotly_hover', (ev) => {{
-      if(_hoverSyncing || !ev.points || !ev.points.length) return;
-      _hoverSyncing = true;
+      if(!ev.points || !ev.points.length) return;
       const idx = ev.points[0].pointIndex;
+      if(chartIds.includes('kdChart') && chartIds.includes('volChart')) showKlineInfoAt(idx);
+      if(_hoverSyncing) return;
+      _hoverSyncing = true;
       chartIds.filter(other => other !== id).forEach(other => {{
         try {{
           const otherDiv = document.getElementById(other);
@@ -584,6 +628,9 @@ function attachHoverSync(chartIds) {{
       _hoverSyncing = false;
     }});
     div.on('plotly_unhover', () => {{
+      if(chartIds.includes('kdChart') && chartIds.includes('volChart') && _klineInfo) {{
+        showKlineInfoAt(_klineInfo.dates.length-1);
+      }}
       if(_hoverSyncing) return;
       _hoverSyncing = true;
       chartIds.filter(other => other !== id).forEach(other => {{
