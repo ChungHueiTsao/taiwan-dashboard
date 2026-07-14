@@ -173,13 +173,7 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
 .chart-main{{flex:1;padding:4px 14px 0;min-height:0;display:flex;flex-direction:column}}
 .kline-info-bar{{display:flex;gap:10px;flex-wrap:wrap;font-size:10px;color:#8b949e;padding:2px 0 4px;flex-shrink:0}}
 .kline-info-bar b{{color:#e6edf3;font-weight:600}}
-.chart-kd{{padding:0 14px;height:54px;border-top:1px solid #21262d;flex-shrink:0}}
-.chart-kd-label{{display:flex;gap:10px;font-size:9px;color:#8b949e;padding:2px 0}}
-.chart-kd-label b{{color:#e6edf3;font-weight:600}}
-.chart-vol{{padding:0 14px;height:50px;border-top:1px solid #21262d;flex-shrink:0}}
-.chart-vol-label{{display:flex;gap:10px;font-size:9px;color:#8b949e;padding:2px 0}}
-.chart-vol-label b{{color:#e6edf3;font-weight:600}}
-#klineChart .hoverlayer,#kdChart .hoverlayer,#volChart .hoverlayer{{display:none}}
+#mainChart .hoverlayer{{display:none}}
 /* 歷史趨勢區（大盤模式） */
 .history-chart{{padding:4px 14px;flex:1;min-height:0;display:none}}
 /* 底部快覽 */
@@ -220,9 +214,9 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
     <!-- 大盤模式 Header -->
     <div class="right-header" id="market-header">
       <div class="idx-tabs">
-        <button class="idx-btn active" onclick="switchIndex(this,'^TWII','加權指數')">加權指數</button>
-        <button class="idx-btn" onclick="switchIndex(this,'^TWOII','OTC 櫃買')">OTC 櫃買</button>
-        <button class="idx-btn" onclick="switchIndex(this,'^TWII','台指期')">台指期</button>
+        <button class="idx-btn active" onclick="switchIndex(this,'TWII','加權指數')">加權指數</button>
+        <button class="idx-btn" onclick="switchIndex(this,'TWOII','OTC 櫃買')">OTC 櫃買</button>
+        <button class="idx-btn" onclick="switchIndex(this,'TAIFEX','台指期')">台指期</button>
       </div>
       <div class="idx-val">
         <span class="big" id="idx-price">-</span>
@@ -296,7 +290,7 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
       </div>
     </div>
 
-    <!-- K線主圖 -->
+    <!-- K線＋KD＋成交量 合併子圖（共用X軸，十字線貫穿） -->
     <div class="chart-main" id="chart-main">
       <div class="kline-info-bar" id="kline-info-bar">
         <span id="ki-date">-</span>
@@ -309,32 +303,16 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
         <span style="color:#a855f7">MA60 <b id="ki-ma60">-</b></span>
         <span style="color:#8b949e">布林上 <b id="ki-bollu">-</b></span>
         <span style="color:#8b949e">布林下 <b id="ki-bolld">-</b></span>
+        <span style="color:#f97316">K <b id="ki-k">-</b></span>
+        <span style="color:#58a6ff">D <b id="ki-d">-</b></span>
+        <span>量 <b id="ki-vol">-</b></span>
       </div>
-      <div id="klineChart" style="width:100%;flex:1;min-height:0"></div>
+      <div id="mainChart" style="width:100%;flex:1;min-height:0"></div>
     </div>
 
     <!-- 歷史趨勢（大盤模式） -->
     <div class="history-chart" id="history-chart">
       <div id="historyChart" style="width:100%;height:100%"></div>
-    </div>
-
-    <!-- KD副圖 -->
-    <div class="chart-kd">
-      <div class="chart-kd-label" id="kd-info-bar">
-        <span id="kdi-date">-</span>
-        <span style="color:#f97316">K <b id="kdi-k">--</b></span>
-        <span style="color:#58a6ff">D <b id="kdi-d">--</b></span>
-      </div>
-      <div id="kdChart" style="width:100%;height:38px"></div>
-    </div>
-
-    <!-- 成交量副圖 -->
-    <div class="chart-vol">
-      <div class="chart-vol-label" id="vol-info-bar">
-        <span id="voli-date">-</span>
-        <span>成交量 <b id="voli-vol">--</b></span>
-      </div>
-      <div id="volChart" style="width:100%;height:34px"></div>
     </div>
 
     <!-- 底部快覽 -->
@@ -475,15 +453,12 @@ function showKlineInfoAt(idx) {{
   document.getElementById('ki-ma60').textContent=fmt(info.ma60[idx]);
   document.getElementById('ki-bollu').textContent=fmt(info.bollU[idx]);
   document.getElementById('ki-bolld').textContent=fmt(info.bollL[idx]);
-
-  document.getElementById('kdi-date').textContent=info.dates[idx];
-  document.getElementById('kdi-k').textContent=fmt(info.kdK[idx]);
-  document.getElementById('kdi-d').textContent=fmt(info.kdD[idx]);
-
-  document.getElementById('voli-date').textContent=info.dates[idx];
-  document.getElementById('voli-vol').textContent=(info.v[idx]/100000000).toFixed(2)+'億';
+  document.getElementById('ki-k').textContent=fmt(info.kdK[idx]);
+  document.getElementById('ki-d').textContent=fmt(info.kdD[idx]);
+  document.getElementById('ki-vol').textContent=(info.v[idx]/100000000).toFixed(2)+'億';
 }}
 
+// K線＋KD＋成交量 合併成單一 Plotly Figure 的三列子圖，共用X軸，十字線貫穿
 function renderKline() {{
   const d=aggregateData(baseKData,currentPeriod);
   if(!d.dates||d.dates.length===0) return;
@@ -491,77 +466,60 @@ function renderKline() {{
   const ma5=calcMA(d.c,5),ma20=calcMA(d.c,20),ma60=calcMA(d.c,60);
   _klineInfo = {{dates:d.dates,o:d.o,h:d.h,l:d.l,c:d.c,v:d.v,ma5,ma20,ma60,bollU:boll.upper,bollL:boll.lower,kdK:kd.K,kdD:kd.D}};
 
-  // K線
-  Plotly.newPlot('klineChart',[
-    {{type:'candlestick',x:d.dates,open:d.o,high:d.h,low:d.l,close:d.c,
+  const maxIdx = d.dates.length-1;
+  const tickvals = d.dates.filter((_,i)=>i%10===0);
+  const ticktext = tickvals.map(x=>x.slice(5));
+  const spike = {{showspikes:true,spikemode:'across',spikesnap:'cursor',spikecolor:'#58a6ff',spikethickness:1,spikedash:'dash'}};
+
+  const traces = [
+    {{type:'candlestick',x:d.dates,open:d.o,high:d.h,low:d.l,close:d.c,xaxis:'x',yaxis:'y',
       increasing:{{line:{{color:'#ff4444'}},fillcolor:'#ff4444'}},
       decreasing:{{line:{{color:'#22c55e'}},fillcolor:'#22c55e'}},name:'K線'}},
-    {{x:d.dates,y:ma5,type:'scatter',mode:'lines',line:{{color:'#f97316',width:1}},name:'MA5'}},
-    {{x:d.dates,y:ma20,type:'scatter',mode:'lines',line:{{color:'#58a6ff',width:1}},name:'MA20'}},
-    {{x:d.dates,y:ma60,type:'scatter',mode:'lines',line:{{color:'#a855f7',width:1}},name:'MA60'}},
-    {{x:d.dates,y:boll.upper,type:'scatter',mode:'lines',line:{{color:'#8b949e',width:0.8,dash:'dot'}},name:'布林上',showlegend:false}},
+    {{x:d.dates,y:ma5,type:'scatter',mode:'lines',line:{{color:'#f97316',width:1}},name:'MA5',xaxis:'x',yaxis:'y'}},
+    {{x:d.dates,y:ma20,type:'scatter',mode:'lines',line:{{color:'#58a6ff',width:1}},name:'MA20',xaxis:'x',yaxis:'y'}},
+    {{x:d.dates,y:ma60,type:'scatter',mode:'lines',line:{{color:'#a855f7',width:1}},name:'MA60',xaxis:'x',yaxis:'y'}},
+    {{x:d.dates,y:boll.upper,type:'scatter',mode:'lines',line:{{color:'#8b949e',width:0.8,dash:'dot'}},name:'布林上',showlegend:false,xaxis:'x',yaxis:'y'}},
     {{x:d.dates,y:boll.lower,type:'scatter',mode:'lines',line:{{color:'#8b949e',width:0.8,dash:'dot'}},name:'布林下',
-      fill:'tonexty',fillcolor:'rgba(139,148,158,0.04)',showlegend:false}},
-  ],{{
-    ...DARK_LAYOUT,
+      fill:'tonexty',fillcolor:'rgba(139,148,158,0.04)',showlegend:false,xaxis:'x',yaxis:'y'}},
+    {{x:d.dates,y:kd.K,type:'scatter',mode:'lines',line:{{color:'#f97316',width:1.2}},name:'K',xaxis:'x',yaxis:'y2'}},
+    {{x:d.dates,y:kd.D,type:'scatter',mode:'lines',line:{{color:'#58a6ff',width:1.2}},name:'D',xaxis:'x',yaxis:'y2'}},
+    {{x:[d.dates[0],d.dates[maxIdx]],y:[80,80],type:'scatter',mode:'lines',
+      line:{{color:'#30363d',width:0.8,dash:'dot'}},showlegend:false,hoverinfo:'skip',xaxis:'x',yaxis:'y2'}},
+    {{x:[d.dates[0],d.dates[maxIdx]],y:[20,20],type:'scatter',mode:'lines',
+      line:{{color:'#30363d',width:0.8,dash:'dot'}},showlegend:false,hoverinfo:'skip',xaxis:'x',yaxis:'y2'}},
+    {{x:d.dates,y:d.v,type:'bar',marker:{{color:d.colors,opacity:0.8}},name:'成交量',xaxis:'x',yaxis:'y3'}}
+  ];
+
+  Plotly.newPlot('mainChart', traces, {{
+    paper_bgcolor:'#0d1117',plot_bgcolor:'#0d1117',
+    font:{{color:'#8b949e',size:10}},
     margin:{{l:50,r:8,t:4,b:20}},
     showlegend:false,
     dragmode:'pan',
-    hovermode:'x',
-    xaxis:{{...DARK_LAYOUT.xaxis,rangeslider:{{visible:false}},type:'category',
-      range:[0,d.dates.length-1],
-      tickmode:'array',
-      tickvals:d.dates.filter((_,i)=>i%10===0),
-      ticktext:d.dates.filter((_,i)=>i%10===0).map(x=>x.slice(5))}},
-    yaxis:{{...DARK_LAYOUT.yaxis,fixedrange:true}}
-  }},PLOT_CONFIG);
+    hovermode:'x unified',
+    xaxis:{{gridcolor:'#21262d',showgrid:true,zeroline:false,rangeslider:{{visible:false}},type:'category',
+      range:[0,maxIdx],tickmode:'array',tickvals,ticktext,...spike}},
+    yaxis:{{gridcolor:'#21262d',showgrid:true,zeroline:false,side:'right',fixedrange:true,
+      domain:[0.35,1.0],showspikes:true}},
+    yaxis2:{{gridcolor:'#21262d',showgrid:true,zeroline:false,side:'right',fixedrange:true,
+      domain:[0.18,0.32],range:[0,100],dtick:40,showspikes:true}},
+    yaxis3:{{gridcolor:'#21262d',showgrid:true,zeroline:false,side:'right',fixedrange:true,
+      domain:[0,0.15],showticklabels:false,showspikes:true}}
+  }}, PLOT_CONFIG);
 
-  // KD
-  Plotly.newPlot('kdChart',[
-    {{x:d.dates,y:kd.K,type:'scatter',mode:'lines',line:{{color:'#f97316',width:1.2}},name:'K'}},
-    {{x:d.dates,y:kd.D,type:'scatter',mode:'lines',line:{{color:'#58a6ff',width:1.2}},name:'D'}},
-    {{x:[d.dates[0],d.dates[d.dates.length-1]],y:[80,80],type:'scatter',mode:'lines',
-      line:{{color:'#30363d',width:0.8,dash:'dot'}},showlegend:false,hoverinfo:'skip'}},
-    {{x:[d.dates[0],d.dates[d.dates.length-1]],y:[20,20],type:'scatter',mode:'lines',
-      line:{{color:'#30363d',width:0.8,dash:'dot'}},showlegend:false,hoverinfo:'skip'}},
-  ],{{
-    ...DARK_LAYOUT,
-    margin:{{l:50,r:8,t:0,b:14}},
-    showlegend:false,
-    dragmode:'pan',
-    hovermode:'x',
-    xaxis:{{...DARK_LAYOUT.xaxis,showticklabels:false,type:'category',range:[0,d.dates.length-1],fixedrange:true}},
-    yaxis:{{...DARK_LAYOUT.yaxis,range:[0,100],dtick:40,fixedrange:true}}
-  }},PLOT_CONFIG);
-
-  // 成交量
-  Plotly.newPlot('volChart',[
-    {{x:d.dates,y:d.v,type:'bar',marker:{{color:d.colors,opacity:0.8}}}}
-  ],{{
-    ...DARK_LAYOUT,
-    margin:{{l:50,r:8,t:0,b:14}},
-    showlegend:false,
-    dragmode:'pan',
-    hovermode:'x',
-    xaxis:{{...DARK_LAYOUT.xaxis,showticklabels:false,type:'category',range:[0,d.dates.length-1],fixedrange:true}},
-    yaxis:{{...DARK_LAYOUT.yaxis,showticklabels:false,fixedrange:true}}
-  }},PLOT_CONFIG);
-
-  attachZoomSync('klineChart',['kdChart','volChart'],d.dates.length-1);
-  attachHoverSync(['klineChart','kdChart','volChart']);
-  attachShiftWheelPan('klineChart');
-  showKlineInfoAt(d.dates.length-1);
+  attachZoomBound('mainChart', maxIdx);
+  attachShiftWheelPan('mainChart');
+  attachMainHover('mainChart');
+  showKlineInfoAt(maxIdx);
 }}
 
-// 縮放/平移時，限制在資料範圍內，並把 X 軸同步給其他圖表
-let _zoomSyncing = false;
-const _zoomBoundDivs = {{}};
-function attachZoomSync(mainId, syncIds, maxIdx) {{
-  const mainDiv = document.getElementById(mainId);
-  _zoomBoundDivs[mainId] = maxIdx;
-  mainDiv.removeAllListeners && mainDiv.removeAllListeners('plotly_relayout');
-  mainDiv.on('plotly_relayout', (ev) => {{
-    if(_zoomSyncing) return;
+// 縮放/平移時，限制在資料範圍內
+function attachZoomBound(divId, maxIdx) {{
+  const div = document.getElementById(divId);
+  let syncing = false;
+  div.removeAllListeners && div.removeAllListeners('plotly_relayout');
+  div.on('plotly_relayout', (ev) => {{
+    if(syncing) return;
     let x0 = ev['xaxis.range[0]'], x1 = ev['xaxis.range[1]'];
     if(x0 === undefined && ev['xaxis.range']) {{ x0 = ev['xaxis.range'][0]; x1 = ev['xaxis.range'][1]; }}
     if(x0 === undefined || x1 === undefined) return;
@@ -575,13 +533,11 @@ function attachZoomSync(mainId, syncIds, maxIdx) {{
       if(nx1 > maxIdx) {{ nx0 -= (nx1 - maxIdx); nx1 = maxIdx; }}
       if(nx0 < 0) nx0 = 0;
     }}
-
-    _zoomSyncing = true;
     if(Math.abs(nx0 - x0) > 1e-6 || Math.abs(nx1 - x1) > 1e-6) {{
-      Plotly.relayout(mainDiv, {{'xaxis.range':[nx0,nx1]}});
+      syncing = true;
+      Plotly.relayout(div, {{'xaxis.range':[nx0,nx1]}});
+      syncing = false;
     }}
-    syncIds.forEach(id => Plotly.relayout(id, {{'xaxis.range':[nx0,nx1]}}));
-    _zoomSyncing = false;
   }});
 }}
 
@@ -603,41 +559,17 @@ function attachShiftWheelPan(divId) {{
   }}, {{passive:false}});
 }}
 
-// 十字線 hover 同步：在任一圖表上移動滑鼠，其他圖表顯示同一X位置的數值
-let _hoverSyncing = false;
-function attachHoverSync(chartIds) {{
-  chartIds.forEach(id => {{
-    const div = document.getElementById(id);
-    if(div._hoverSyncBound) return;
-    div._hoverSyncBound = true;
-    div.on('plotly_hover', (ev) => {{
-      if(!ev.points || !ev.points.length) return;
-      const idx = ev.points[0].pointIndex;
-      if(chartIds.includes('kdChart') && chartIds.includes('volChart')) showKlineInfoAt(idx);
-      if(_hoverSyncing) return;
-      _hoverSyncing = true;
-      chartIds.filter(other => other !== id).forEach(other => {{
-        try {{
-          const otherDiv = document.getElementById(other);
-          const numTraces = (otherDiv.data || []).length;
-          const pts = [];
-          for(let t=0;t<numTraces;t++) pts.push({{curveNumber:t, pointNumber:idx}});
-          Plotly.Fx.hover(other, pts);
-        }} catch(e) {{}}
-      }});
-      _hoverSyncing = false;
-    }});
-    div.on('plotly_unhover', () => {{
-      if(chartIds.includes('kdChart') && chartIds.includes('volChart') && _klineInfo) {{
-        showKlineInfoAt(_klineInfo.dates.length-1);
-      }}
-      if(_hoverSyncing) return;
-      _hoverSyncing = true;
-      chartIds.filter(other => other !== id).forEach(other => {{
-        try {{ Plotly.Fx.unhover(other); }} catch(e) {{}}
-      }});
-      _hoverSyncing = false;
-    }});
+// hover 時把該日期的所有數值同步更新到頂部資訊列（單一圖表，三子圖天生共用X軸與十字線）
+function attachMainHover(divId) {{
+  const div = document.getElementById(divId);
+  if(div._hoverBound) return;
+  div._hoverBound = true;
+  div.on('plotly_hover', (ev) => {{
+    if(!ev.points || !ev.points.length) return;
+    showKlineInfoAt(ev.points[0].pointIndex);
+  }});
+  div.on('plotly_unhover', () => {{
+    if(_klineInfo) showKlineInfoAt(_klineInfo.dates.length-1);
   }});
 }}
 
@@ -656,7 +588,7 @@ function renderHistory() {{
     xaxis:{{...DARK_LAYOUT.xaxis,type:'category',range:[0,HISTORY_MAX_IDX]}},
     yaxis:{{...DARK_LAYOUT.yaxis,title:'強勢評分',fixedrange:true}}
   }},PLOT_CONFIG);
-  attachZoomSync('historyChart',[],HISTORY_MAX_IDX);
+  attachZoomBound('historyChart',HISTORY_MAX_IDX);
   attachShiftWheelPan('historyChart');
 }}
 
@@ -780,7 +712,7 @@ function backToMarket() {{
   document.getElementById('history-chart').style.display='block';
   renderHistory();
 
-  const twii=await fetchKline('^TWII');
+  const twii=await fetchKline('TWII');
   if(twii) {{
     baseKData=twii;
     currentIndexKData=twii;
@@ -793,7 +725,7 @@ function backToMarket() {{
     document.getElementById('f-fut-chg').textContent=`${{info.arrow}} ${{info.chg.toFixed(2)}}%`;
     document.getElementById('f-fut-chg').style.color=info.color;
   }}
-  const twoii=await fetchKline('^TWOII');
+  const twoii=await fetchKline('TWOII');
   if(twoii) {{
     const n=twoii.c.length;
     const price=twoii.c[n-1];

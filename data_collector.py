@@ -15,11 +15,12 @@ HIST_PATH = f'{DATA_DIR}/history.csv'
 KLINE_DIR = f'{DATA_DIR}/kline'
 INSTITUTIONAL_PATH = f'{DATA_DIR}/institutional.json'
 
-# 大盤指數對應：台指期沒有可靠的免費歷史資料來源，用加權指數代替
+# 大盤指數對應：別名(不含^，檔名/URL安全) -> yfinance真實代號
+# 台指期沒有可靠的免費歷史資料來源，暫用加權指數代替
 INDEX_SYMBOLS = {
-    "加權指數": "^TWII",
-    "OTC 櫃買": "^TWOII",
-    "台指期": "^TWII"
+    "TWII": "^TWII",     # 加權指數
+    "TWOII": "^TWOII",   # OTC 櫃買
+    "TAIFEX": "^TWII",   # 台指期
 }
 
 def ensure_dirs():
@@ -89,11 +90,11 @@ def push_history_to_github():
 # 升級1：真實K線資料
 # ---------------------------------------------------------------------------
 
-def _kline_path(symbol):
-    return f'{KLINE_DIR}/{symbol}.json'
+def _kline_path(cache_name):
+    return f'{KLINE_DIR}/{cache_name}.json'
 
-def get_kline_history(symbol, period='1y'):
-    """抓取真實日K線（開高低收量），存成 data/kline/{symbol}.json 並回傳"""
+def _fetch_kline_raw(symbol, period='1y'):
+    """向 yfinance 抓取單一代號的日K，不做任何快取存檔，僅回傳乾淨資料或 None"""
     try:
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period=period)
@@ -105,7 +106,7 @@ def get_kline_history(symbol, period='1y'):
         if hist.empty:
             return None
         volume = hist['Volume'].fillna(0)
-        kline = {
+        return {
             "dates": hist.index.strftime('%Y-%m-%d').tolist(),
             "open": [round(float(x), 2) for x in hist['Open']],
             "high": [round(float(x), 2) for x in hist['High']],
@@ -113,17 +114,27 @@ def get_kline_history(symbol, period='1y'):
             "close": [round(float(x), 2) for x in hist['Close']],
             "volume": [int(x) for x in volume]
         }
-        ensure_dirs()
-        with open(_kline_path(symbol), 'w', encoding='utf-8') as f:
-            json.dump(kline, f, ensure_ascii=False)
-        return kline
     except Exception as e:
         print(f"  ⚠️  {symbol} K線抓取失敗: {e}")
         return None
 
-def load_cached_kline(symbol):
+def save_kline(kline, cache_name):
+    ensure_dirs()
+    with open(_kline_path(cache_name), 'w', encoding='utf-8') as f:
+        json.dump(kline, f, ensure_ascii=False)
+
+def get_kline_history(symbol, period='1y', cache_name=None):
+    """抓取真實日K線（開高低收量），存成 data/kline/{cache_name or symbol}.json 並回傳。
+    cache_name 用於指數等代號含特殊字元（如 ^TWII）時，改用不含特殊字元的別名存檔，
+    避免檔名/URL 出現 ^ 造成問題"""
+    kline = _fetch_kline_raw(symbol, period)
+    if kline:
+        save_kline(kline, cache_name or symbol)
+    return kline
+
+def load_cached_kline(cache_name):
     """讀取本機快取的K線，沒有就回傳 None（由呼叫端決定是否即時抓取）"""
-    path = _kline_path(symbol)
+    path = _kline_path(cache_name)
     if not os.path.exists(path):
         return None
     try:
@@ -133,18 +144,23 @@ def load_cached_kline(symbol):
         return None
 
 def collect_index_klines():
-    """抓取大盤三個 Tab 對應的指數K線（加權指數/OTC櫃買/台指期→用加權指數代替），平行抓取加速"""
+    """抓取大盤三個 Tab 對應的指數K線（別名 TWII/TWOII/TAIFEX），平行抓取加速；
+    相同真實代號（台指期暫用加權指數）只呼叫一次 yfinance，再各自存成對應別名快取"""
     unique_symbols = list(dict.fromkeys(INDEX_SYMBOLS.values()))
-    labels = {v: k for k, v in INDEX_SYMBOLS.items()}
+    fetched = {}
     with ThreadPoolExecutor(max_workers=len(unique_symbols)) as executor:
-        futures = {executor.submit(get_kline_history, symbol): symbol for symbol in unique_symbols}
+        futures = {executor.submit(_fetch_kline_raw, symbol): symbol for symbol in unique_symbols}
         for future in as_completed(futures):
             symbol = futures[future]
-            kline = future.result()
-            if kline:
-                print(f"  ✅ {labels[symbol]}({symbol}) 指數K線已更新，共 {len(kline['dates'])} 筆")
-            else:
-                print(f"  ⚠️  {labels[symbol]}({symbol}) 指數K線抓取失敗")
+            fetched[symbol] = future.result()
+
+    for alias, real_symbol in INDEX_SYMBOLS.items():
+        kline = fetched.get(real_symbol)
+        if kline:
+            save_kline(kline, alias)
+            print(f"  ✅ {alias}({real_symbol}) 指數K線已更新，共 {len(kline['dates'])} 筆")
+        else:
+            print(f"  ⚠️  {alias}({real_symbol}) 指數K線抓取失敗")
 
 # ---------------------------------------------------------------------------
 # 升級4：ATR + 支撐壓力 建議價格計算

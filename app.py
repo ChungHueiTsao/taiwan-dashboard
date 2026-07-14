@@ -18,6 +18,25 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(mess
 
 TAIPEI_TZ = pytz.timezone('Asia/Taipei')
 
+# ^ 在 URL 路徑裡容易被中介層/瀏覽器編碼成 %5E 造成路由或快取檔名問題，
+# 對外一律用不含特殊字元的別名，內部再轉換成 yfinance 真正的代號
+SYMBOL_MAP = {
+    "TWII": "^TWII",      # 加權指數
+    "TWOII": "^TWOII",    # 櫃買指數
+    "TAIFEX": "^TWII",    # 台指期（無可靠免費歷史資料來源，暫用加權指數代替）
+}
+
+def resolve_symbol(symbol):
+    """把對外別名（TWII/TWOII/TAIFEX）轉成 yfinance 實際代號，一般股票代號原樣返回"""
+    return SYMBOL_MAP.get(symbol, symbol)
+
+def is_market_hours():
+    now = datetime.now(TAIPEI_TZ)
+    if now.weekday() >= 5:
+        return False
+    t = now.time()
+    return t >= datetime.strptime('09:00', '%H:%M').time() and t <= datetime.strptime('13:30', '%H:%M').time()
+
 def run_full_update():
     logging.info("🚀 開始完整更新...")
     try:
@@ -34,18 +53,22 @@ def run_full_update():
         logging.error(f"❌ 更新失敗: {e}")
 
 def refresh_now():
-    """/api/refresh 用：只用盤中分時資料更新現價，不重抓整年K線（比 run_full_update 快很多）"""
-    logging.info("⏱️  開始盤中即時更新...")
-    try:
-        from data_collector import refresh_intraday_prices
-        from analyzer import analyze
-        from dashboard_generator import generate
-        refresh_intraday_prices()
-        analyze()
-        generate()
-        logging.info("✅ 盤中更新完成")
-    except Exception as e:
-        logging.error(f"❌ 盤中更新失敗: {e}")
+    """/api/refresh 用：盤中時段只更新現價（快），非盤中時段跑完整更新（含重抓K線）"""
+    if is_market_hours():
+        logging.info("⏱️  盤中時段，開始盤中即時更新...")
+        try:
+            from data_collector import refresh_intraday_prices
+            from analyzer import analyze
+            from dashboard_generator import generate
+            refresh_intraday_prices()
+            analyze()
+            generate()
+            logging.info("✅ 盤中更新完成")
+        except Exception as e:
+            logging.error(f"❌ 盤中更新失敗: {e}")
+    else:
+        logging.info("🌙 非盤中時段，改跑完整更新...")
+        run_full_update()
 
 def keep_alive():
     try:
@@ -98,9 +121,10 @@ def api_refresh():
 @app.route('/api/kline/<symbol>')
 def api_kline(symbol):
     from data_collector import load_cached_kline, get_kline_history
-    kline = load_cached_kline(symbol)
+    real_symbol = resolve_symbol(symbol)
+    kline = load_cached_kline(symbol if symbol in SYMBOL_MAP else real_symbol)
     if not kline:
-        kline = get_kline_history(symbol)
+        kline = get_kline_history(real_symbol, cache_name=symbol if symbol in SYMBOL_MAP else None)
     if not kline:
         return jsonify({"error": f"{symbol} 無法取得K線資料"}), 404
     return jsonify(kline)
