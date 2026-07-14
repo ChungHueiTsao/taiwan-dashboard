@@ -1,6 +1,7 @@
 import json
 import time
 import logging
+import datetime
 import requests
 
 HEADERS = {
@@ -13,6 +14,7 @@ MIS_PRIMING_URL = "https://mis.twse.com.tw/stock/"
 BATCH_SIZE = 20
 BATCH_DELAY = 3
 MAX_CONSECUTIVE_FAILURES = 3
+FALLBACK_COOLDOWN_MINUTES = 10
 
 # 大盤指數對應 MIS 查詢代號
 INDEX_QUOTE_CODES = {
@@ -21,21 +23,34 @@ INDEX_QUOTE_CODES = {
 }
 
 _consecutive_failures = 0
+_fallback_since = None
 
 def is_fallback_active():
-    """連續失敗達上限時回傳 True，呼叫端應改用 yfinance 模式"""
-    return _consecutive_failures >= MAX_CONSECUTIVE_FAILURES
+    """連續失敗達上限時回傳 True，呼叫端應改用 yfinance 模式。
+    進入退回模式超過 FALLBACK_COOLDOWN_MINUTES 分鐘後會自動重置，讓下次呼叫重新嘗試 MIS，
+    不會因為單次網路波動就整個 worker 生命週期都鎖死在 yfinance 模式"""
+    global _consecutive_failures, _fallback_since
+    if _consecutive_failures < MAX_CONSECUTIVE_FAILURES:
+        return False
+    if _fallback_since and (datetime.datetime.now() - _fallback_since).total_seconds() >= FALLBACK_COOLDOWN_MINUTES * 60:
+        logging.info(f"⏱️  MIS 退回模式已滿 {FALLBACK_COOLDOWN_MINUTES} 分鐘，自動重新嘗試即時報價")
+        _consecutive_failures = 0
+        _fallback_since = None
+        return False
+    return True
 
 def _record_failure(reason):
-    global _consecutive_failures
+    global _consecutive_failures, _fallback_since
     _consecutive_failures += 1
     logging.warning(f"⚠️  MIS 即時報價失敗（連續 {_consecutive_failures} 次）: {reason}")
-    if _consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-        logging.warning("⚠️  MIS 即時報價連續失敗達上限，自動退回 yfinance 模式")
+    if _consecutive_failures >= MAX_CONSECUTIVE_FAILURES and _fallback_since is None:
+        _fallback_since = datetime.datetime.now()
+        logging.warning(f"⚠️  MIS 即時報價連續失敗達上限，退回 yfinance 模式（{FALLBACK_COOLDOWN_MINUTES} 分鐘後自動重試）")
 
 def _record_success():
-    global _consecutive_failures
+    global _consecutive_failures, _fallback_since
     _consecutive_failures = 0
+    _fallback_since = None
 
 def _priming_session():
     """MIS 部分環境會需要先建立 session cookie 才能查詢，這裡預先 GET 一次首頁，
