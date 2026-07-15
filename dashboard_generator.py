@@ -100,7 +100,7 @@ def generate():
         summary = f"{s['name']}族群今日平均{sign}{change:.2f}%，{s['rating']}。領漲個股為{s['top_stock']}（{'+' if s['top_change']>0 else ''}{s['top_change']:.2f}%），籌碼面建議留意法人動向與量能變化。"
 
         sector_rows_html += f"""
-        <div class="sector-row" onclick='selectSector(this,{json.dumps(s['name'])},{json.dumps(s['emoji'])},{json.dumps(s['rating'])},{json.dumps(summary)},{is_up},{json.dumps(stocks_js)})'>
+        <div class="sector-row" data-sector="{s['name']}" onclick='selectSector(this,{json.dumps(s['name'])},{json.dumps(s['emoji'])},{json.dumps(s['rating'])},{json.dumps(summary)},{is_up},{json.dumps(stocks_js)})'>
           <span class="rank">{i+1}</span>
           <span class="name">{s['emoji']} {s['name']}</span>
           <span class="val" style="color:{color}">{sign}{change:.2f}%</span>
@@ -195,12 +195,15 @@ def generate():
         "法說會": "#ec4899",
     }
 
-    # bare code -> {name, sector, emoji}，用來把 related_stocks 展開成同族群個股
+    # bare code -> {name, sector, emoji, symbol}，把events.json裡的related_stocks(個股代號)
+    # 轉成前端可直接顯示/跳轉用的完整資訊；symbol帶完整代號(含.TW/.TWO)供jumpToStock使用
     code_to_info = {}
-    sector_to_codes = {}
+    sector_emoji_map = {}
     for sym, sj in all_stocks_lookup.items():
-        code_to_info[sj['code_bare']] = {"name": sj['name'], "sector": sj['sectorName'], "emoji": sj['sectorEmoji']}
-        sector_to_codes.setdefault(sj['sectorName'], set()).add(sj['code_bare'])
+        code_to_info[sj['code_bare']] = {
+            "name": sj['name'], "sector": sj['sectorName'], "emoji": sj['sectorEmoji'], "symbol": sym
+        }
+        sector_emoji_map[sj['sectorName']] = sj['sectorEmoji']
 
     events_sorted = sorted(events, key=lambda e: e.get('date', ''))
     timeline_html = ""
@@ -208,34 +211,32 @@ def generate():
     for idx, e in enumerate(events_sorted):
         etype = e.get('type', '其他')
         color = EVENT_TYPE_COLORS.get(etype, '#8b949e')
-        related = e.get('related_stocks', [])
 
         impact_stocks = []
-        seen_codes = set()
-        for code in related:
+        for rs in e.get('related_stocks', []):
+            code = rs.get('stock', '')
             info = code_to_info.get(code)
-            if not info or code in seen_codes:
+            if not info:
                 continue
-            seen_codes.add(code)
             impact_stocks.append({
-                "code": code, "name": info['name'], "sector": info['emoji'] + info['sector'],
-                "relation": "本尊", "impact": e.get('impact', '中'), "impactColor": "neutral"
+                "code": code, "symbol": info['symbol'], "name": info['name'],
+                "sector": info['emoji'] + info['sector'], "sectorName": info['sector'],
+                "relation": rs.get('relation', ''), "impact": rs.get('impact', ''),
+                "reason": rs.get('reason', '')
             })
-        related_sectors = {code_to_info[c]['sector'] for c in related if c in code_to_info}
-        for sector_name in related_sectors:
-            for code in sector_to_codes.get(sector_name, []):
-                if code in seen_codes:
-                    continue
-                seen_codes.add(code)
-                info = code_to_info[code]
-                impact_stocks.append({
-                    "code": code, "name": info['name'], "sector": info['emoji'] + info['sector'],
-                    "relation": "同族群", "impact": "同業關注", "impactColor": "neutral"
-                })
+
+        affected_sectors = []
+        for asec in e.get('affected_sectors', []):
+            sector_name = asec.get('sector', '')
+            affected_sectors.append({
+                "sector": sector_name, "sectorLabel": sector_emoji_map.get(sector_name, '') + sector_name,
+                "direction": asec.get('direction', 'neutral'), "reason": asec.get('reason', '')
+            })
 
         event_details.append({
             "date": e.get('date', ''), "type": etype, "title": e.get('title', ''),
-            "summary": e.get('title', ''), "impactStocks": impact_stocks
+            "summary": e.get('summary') or e.get('title', ''),
+            "impactStocks": impact_stocks, "affectedSectors": affected_sectors
         })
 
         timeline_html += f"""
@@ -314,6 +315,12 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
 .impact-table tr:hover td{{background:#161b22}}
 .impact-relation{{font-size:10px;padding:2px 7px;border-radius:4px;background:#21262d;color:#8b949e}}
 .impact-relation.self{{background:#58a6ff22;color:#58a6ff}}
+.impact-reason{{color:#8b949e;font-size:11px;line-height:1.5;max-width:260px}}
+.impact-link{{cursor:pointer;color:#c9d1d9}}
+.impact-link:hover{{color:#58a6ff;text-decoration:underline}}
+.impact-dir-positive{{color:#ff4444;font-weight:600;font-size:12px}}
+.impact-dir-negative{{color:#22c55e;font-weight:600;font-size:12px}}
+.impact-dir-neutral{{color:#8b949e;font-weight:600;font-size:12px}}
 /* LEFT */
 .left{{border-right:1px solid #30363d;padding:8px 6px;display:flex;flex-direction:column;gap:2px;overflow-y:auto}}
 .left-title{{font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:.05em;padding:0 4px;margin-bottom:4px;flex-shrink:0}}
@@ -962,31 +969,60 @@ function filterEvents(btn, type) {{
   if(emptyMsg) emptyMsg.style.display = visibleCount === 0 ? '' : 'none';
 }}
 
+// 事件詳情頁的族群名稱點擊：切回監控頁並觸發對應族群列的既有點擊邏輯(selectSector)，
+// 不重複實作選族群的渲染邏輯
+function selectSectorByName(name) {{
+  showPage('monitor');
+  const row = Array.from(document.querySelectorAll('.sector-row')).find(r => r.dataset.sector === name);
+  if(row) row.click();
+}}
+
+const IMPACT_DIRECTION_LABELS = {{
+  positive: ['impact-dir-positive', '利多'],
+  negative: ['impact-dir-negative', '利空'],
+  neutral: ['impact-dir-neutral', '中性']
+}};
+
 function showEventDetail(idx) {{
   const ev = EVENTS[idx];
   if(!ev) return;
   document.querySelectorAll('.ev-card').forEach((card,i)=>card.classList.toggle('active', i===idx));
 
-  const isMarketWide = (ev.type === '總經' || ev.type === '升降息') && (!ev.impactStocks || ev.impactStocks.length === 0);
-
-  const rows = (ev.impactStocks || []).map(s => {{
-    const relCls = s.relation === '本尊' ? 'impact-relation self' : 'impact-relation';
-    return `<tr onclick="jumpToStock('${{s.code}}.TW')" style="cursor:pointer">
-      <td>${{s.name}}</td>
-      <td>${{s.sector}}</td>
-      <td><span class="${{relCls}}">${{s.relation}}</span></td>
-      <td>${{s.impact}}</td>
-    </tr>`;
-  }}).join('');
-
-  const impactSection = isMarketWide
-    ? `<div class="impact-table-title">📋 影響範圍</div>
-       <div class="ev-empty-msg" style="padding-top:20px">🌐 影響全市場，非個股事件</div>`
-    : `<div class="impact-table-title">📋 影響個股</div>
-       <table class="impact-table">
-         <thead><tr><th>個股名稱</th><th>所屬族群</th><th>關聯性</th><th>預期影響</th></tr></thead>
-         <tbody>${{rows || '<tr><td colspan="4" style="color:#8b949e;text-align:center">尚無關聯個股資料</td></tr>'}}</tbody>
-       </table>`;
+  let impactSection;
+  if(ev.impactStocks && ev.impactStocks.length > 0) {{
+    const rows = ev.impactStocks.map(s => {{
+      const relCls = s.relation === '本尊' ? 'impact-relation self' : 'impact-relation';
+      return `<tr>
+        <td><span class="impact-link" onclick="jumpToStock('${{s.symbol}}')">${{s.name}}</span></td>
+        <td><span class="impact-link" onclick="selectSectorByName('${{s.sectorName}}')">${{s.sector}}</span></td>
+        <td><span class="${{relCls}}">${{s.relation}}</span></td>
+        <td>${{s.impact}}</td>
+        <td class="impact-reason">${{s.reason}}</td>
+      </tr>`;
+    }}).join('');
+    impactSection = `<div class="impact-table-title">📋 影響個股</div>
+      <table class="impact-table">
+        <thead><tr><th>個股名稱</th><th>所屬族群</th><th>關聯性</th><th>預期影響</th><th>原因</th></tr></thead>
+        <tbody>${{rows}}</tbody>
+      </table>`;
+  }} else if(ev.affectedSectors && ev.affectedSectors.length > 0) {{
+    const rows = ev.affectedSectors.map(s => {{
+      const [cls, label] = IMPACT_DIRECTION_LABELS[s.direction] || IMPACT_DIRECTION_LABELS.neutral;
+      return `<tr>
+        <td><span class="impact-link" onclick="selectSectorByName('${{s.sector}}')">${{s.sectorLabel}}</span></td>
+        <td><span class="${{cls}}">${{label}}</span></td>
+        <td class="impact-reason">${{s.reason}}</td>
+      </tr>`;
+    }}).join('');
+    impactSection = `<div class="impact-table-title">📋 影響族群</div>
+      <table class="impact-table">
+        <thead><tr><th>族群</th><th>預期方向</th><th>原因</th></tr></thead>
+        <tbody>${{rows}}</tbody>
+      </table>`;
+  }} else {{
+    impactSection = `<div class="impact-table-title">📋 影響範圍</div>
+      <div class="ev-empty-msg" style="padding-top:20px">🌐 影響全市場，非個股事件</div>`;
+  }}
 
   document.getElementById('ev-detail-panel').innerHTML = `
     <div class="ev-detail-title">${{ev.title}}</div>
