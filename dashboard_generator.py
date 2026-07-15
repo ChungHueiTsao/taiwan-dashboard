@@ -290,6 +290,7 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
         <span><span class="dot" style="background:#a855f7"></span>MA60</span>
         <span><span class="dot" style="background:#8b949e;opacity:.5"></span>布林帶</span>
       </div>
+      <button class="btn-sm" id="history-toggle-btn" onclick="toggleHistoryView()" style="margin-left:8px">📈 族群趨勢</button>
     </div>
 
     <!-- K線＋KD＋成交量 合併子圖（共用X軸，十字線貫穿） -->
@@ -473,6 +474,8 @@ function renderKline() {{
   const ticktext = tickvals.map(x=>x.slice(5));
   const spike = {{showspikes:true,spikemode:'across',spikesnap:'cursor',spikecolor:'#58a6ff',spikethickness:1,spikedash:'dash'}};
 
+  const hasVolume = d.v.some(v => v > 0);
+
   const traces = [
     {{type:'candlestick',x:d.dates,open:d.o,high:d.h,low:d.l,close:d.c,xaxis:'x',yaxis:'y',
       increasing:{{line:{{color:'#ff4444'}},fillcolor:'#ff4444'}},
@@ -489,8 +492,15 @@ function renderKline() {{
       line:{{color:'#30363d',width:0.8,dash:'dot'}},showlegend:false,hoverinfo:'skip',xaxis:'x',yaxis:'y2'}},
     {{x:[d.dates[0],d.dates[maxIdx]],y:[20,20],type:'scatter',mode:'lines',
       line:{{color:'#30363d',width:0.8,dash:'dot'}},showlegend:false,hoverinfo:'skip',xaxis:'x',yaxis:'y2'}},
-    {{x:d.dates,y:d.v,type:'bar',marker:{{color:d.colors,opacity:0.8}},name:'成交量',xaxis:'x',yaxis:'y3'}}
   ];
+  if(hasVolume) {{
+    traces.push({{x:d.dates,y:d.v,type:'bar',marker:{{color:d.colors,opacity:0.8}},name:'成交量',xaxis:'x',yaxis:'y3'}});
+  }}
+
+  const annotations = hasVolume ? [] : [{{
+    text:'指數無成交量資料', xref:'paper', yref:'paper', x:0.5, y:0.075,
+    showarrow:false, font:{{color:'#8b949e',size:10}}
+  }}];
 
   Plotly.newPlot('mainChart', traces, {{
     paper_bgcolor:'#0d1117',plot_bgcolor:'#0d1117',
@@ -499,6 +509,7 @@ function renderKline() {{
     showlegend:false,
     dragmode:'pan',
     hovermode:'x unified',
+    annotations,
     xaxis:{{gridcolor:'#21262d',showgrid:true,zeroline:false,rangeslider:{{visible:false}},type:'category',
       range:[0,maxIdx],tickmode:'array',tickvals,ticktext,...spike}},
     yaxis:{{gridcolor:'#21262d',showgrid:true,zeroline:false,side:'right',fixedrange:true,
@@ -623,6 +634,10 @@ async function switchIndex(btn, symbol, label) {{
   baseKData=kline;
   currentIndexKData=kline;
   updateIndexHeader(kline);
+  if(_showingHistory) resetHistoryToggle();
+  document.getElementById('chart-main').style.display='flex';
+  document.getElementById('chart-main').style.flexDirection='column';
+  document.getElementById('history-chart').style.display='none';
   renderKline();
 }}
 
@@ -637,6 +652,7 @@ function selectSector(el, name, emoji, rating, summary, isUp, stocks) {{
   document.querySelectorAll('.sector-row').forEach(r=>r.classList.remove('active'));
   el.classList.add('active');
 
+  resetHistoryToggle();
   document.getElementById('market-header').style.display='none';
   document.getElementById('sector-header').style.display='block';
   document.getElementById('history-chart').style.display='none';
@@ -698,22 +714,46 @@ function backToMarket() {{
   document.getElementById('sector-header').style.display='none';
   document.getElementById('market-header').style.display='block';
   document.getElementById('stock-info-panel').style.display='none';
-  document.getElementById('history-chart').style.display='block';
-  document.getElementById('chart-main').style.display='none';
+  resetHistoryToggle();
+  document.getElementById('history-chart').style.display='none';
+  document.getElementById('chart-main').style.display='flex';
+  document.getElementById('chart-main').style.flexDirection='column';
   document.querySelectorAll('.sector-row').forEach(r=>r.classList.remove('active'));
   if(currentIndexKData) {{
     baseKData=currentIndexKData;
     renderKline();
   }}
-  renderHistory();
 }}
 
-// 初始化：抓取大盤指數真實資料，並顯示歷史趨勢圖
-(async () => {{
-  document.getElementById('chart-main').style.display='none';
-  document.getElementById('history-chart').style.display='block';
-  renderHistory();
+// 「📈 族群趨勢」切換鈕：K線區與族群評分趨勢折線圖互相切換，兩種模式下都可用
+let _showingHistory = false;
+function resetHistoryToggle() {{
+  _showingHistory = false;
+  const btn = document.getElementById('history-toggle-btn');
+  btn.textContent = '📈 族群趨勢';
+  btn.classList.remove('active-up');
+}}
+function toggleHistoryView() {{
+  _showingHistory = !_showingHistory;
+  const btn = document.getElementById('history-toggle-btn');
+  if(_showingHistory) {{
+    document.getElementById('chart-main').style.display='none';
+    document.getElementById('history-chart').style.display='block';
+    btn.textContent = '🕯️ K線圖';
+    btn.classList.add('active-up');
+    renderHistory();
+  }} else {{
+    document.getElementById('history-chart').style.display='none';
+    document.getElementById('chart-main').style.display='flex';
+    document.getElementById('chart-main').style.flexDirection='column';
+    btn.textContent = '📈 族群趨勢';
+    btn.classList.remove('active-up');
+    renderKline();
+  }}
+}}
 
+// 初始化：抓取大盤指數真實K線資料（大盤模式預設顯示K線，不是族群趨勢折線圖）
+(async () => {{
   const twii=await fetchKline('TWII');
   if(twii) {{
     baseKData=twii;
