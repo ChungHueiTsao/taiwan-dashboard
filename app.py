@@ -41,16 +41,33 @@ def run_full_update():
     logging.info("🚀 開始完整更新...")
     try:
         from institutional_collector import collect as collect_institutional
+        from events_collector import collect as collect_events
         from data_collector import collect_all
         from analyzer import analyze
         from dashboard_generator import generate
         collect_institutional()
+        collect_events()
         collect_all()
         analyze()
         generate()
         logging.info("✅ 更新完成")
     except Exception as e:
         logging.error(f"❌ 更新失敗: {e}")
+
+def collect_big_holders_job():
+    """大戶動向：集保結算所股權分散表每週更新一次，獨立排程在每週五執行，
+    不隨每日更新一起跑（跟每日資料更新頻率不同）"""
+    logging.info("📊 開始週更大戶動向...")
+    try:
+        from big_holders_collector import collect as collect_big_holders
+        from analyzer import analyze
+        from dashboard_generator import generate
+        collect_big_holders()
+        analyze()
+        generate()
+        logging.info("✅ 大戶動向更新完成")
+    except Exception as e:
+        logging.error(f"❌ 大戶動向更新失敗: {e}")
 
 def refresh_now():
     """/api/refresh 用：盤中時段用 TWSE MIS 即時報價更新現價（延遲約5秒，快且準），
@@ -88,6 +105,12 @@ scheduler.add_job(
     name='每日8:50更新'
 )
 scheduler.add_job(keep_alive, 'interval', minutes=14, id='keep_alive')
+scheduler.add_job(
+    collect_big_holders_job,
+    CronTrigger(day_of_week='fri', hour=18, minute=0, timezone=TAIPEI_TZ),
+    id='weekly_holders',
+    name='每週五18:00大戶動向更新'
+)
 scheduler.start()
 
 # 啟動時若無資料，在背景執行完整更新，不阻擋網站上線（Render 免費方案磁碟不持久，

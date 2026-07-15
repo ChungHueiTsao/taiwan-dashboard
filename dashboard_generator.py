@@ -25,8 +25,60 @@ def generate():
     data_source = analysis.get('data_source', 'yfinance')
     delay_note = "盤中即時（延遲約5秒）" if data_source == 'realtime' else "資料延遲約15分鐘"
 
-    # 左側族群列表
+    try:
+        with open('data/big_holders.json', 'r', encoding='utf-8') as f:
+            big_holders = json.load(f)
+    except Exception:
+        big_holders = None
+
+    def build_stock_js(sym, sd, sector_name, sector_emoji):
+        """單一股票的完整前端資料物件，族群強弱/法人買超/大戶動向/量增排行 4個Tab共用同一份格式"""
+        p = sd.get('price', 0)
+        c = sd.get('change_pct', 0)
+        v = sd.get('volume', 0)
+        vr = sd.get('volume_ratio', 1.0)
+        c_sign = "+" if c > 0 else ""
+        c_color = "true" if c > 0 else "false"
+        foreign_5d = sd.get('foreign_5d', 0)
+        trust_5d = sd.get('trust_5d', 0)
+        inst_signal = sd.get('inst_signal', '中性')
+        star = "⭐ " if inst_signal == "法人同買" else ""
+        return {
+            "name": sd.get('name', sym),
+            "code": sym.replace('.TWO', '').replace('.TW', ''),
+            "sym": sym,
+            "price": str(p),
+            "chg": f"{c_sign}{c:.2f}%",
+            "vol": f"{v:,}",
+            "vr": f"{vr:.1f}",
+            "entry": sd.get('entry', '-'),
+            "stop": sd.get('stop', '-'),
+            "target": sd.get('target', '-'),
+            "action": sd.get('action', '觀望'),
+            "entryNote": sd.get('entry_note', ''),
+            "stopNote": sd.get('stop_note', ''),
+            "targetNote": sd.get('target_note', ''),
+            "actionNote": sd.get('action_note', ''),
+            "foreignFmt": f"{'+' if foreign_5d >= 0 else ''}{foreign_5d:,}張",
+            "trustFmt": f"{'+' if trust_5d >= 0 else ''}{trust_5d:,}張",
+            "foreignUp": "true" if foreign_5d >= 0 else "false",
+            "trustUp": "true" if trust_5d >= 0 else "false",
+            "instSignal": inst_signal,
+            "star": star,
+            "up": c_color,
+            "sectorName": sector_name,
+            "sectorEmoji": sector_emoji,
+            "foreignTrust5d": foreign_5d + trust_5d,
+            "volumeRatioRaw": vr,
+            "changePctRaw": c,
+            "code_bare": sym.replace('.TWO', '').replace('.TW', '')
+        }
+
+    # 左側族群列表 + 蒐集全部個股（不限前5檔）供其他3個排行Tab與跳轉查詢使用
     sector_rows_html = ""
+    all_stocks_flat = []   # [(sym, stock_js), ...]
+    all_stocks_lookup = {}  # sym -> stock_js，供 JS 端 jumpToStock 查詢
+
     for i, s in enumerate(sectors):
         change = s['avg_change']
         color = "#ff4444" if change > 0 else "#22c55e"
@@ -34,47 +86,16 @@ def generate():
         score_pct = max(3, min(97, s['score']))
         is_up = "true" if change > 0 else "false"
 
-        # 個股資料 for JS（進場/停損/目標/操作建議均由 data_collector.py 的 ATR+籌碼邏輯計算）
-        stocks_js = []
         stock_items = list(s.get('stocks', {}).items())
         stock_items_sorted = sorted(stock_items, key=lambda x: x[1].get('change_pct', 0), reverse=True)
-        for sym, sd in stock_items_sorted[:5]:
-            p = sd.get('price', 0)
-            c = sd.get('change_pct', 0)
-            v = sd.get('volume', 0)
-            vr = sd.get('volume_ratio', 1.0)
-            c_sign = "+" if c > 0 else ""
-            c_color = "true" if c > 0 else "false"
 
-            foreign_5d = sd.get('foreign_5d', 0)
-            trust_5d = sd.get('trust_5d', 0)
-            inst_signal = sd.get('inst_signal', '中性')
-            star = "⭐ " if inst_signal == "法人同買" else ""
-
-            stocks_js.append({
-                "name": sd.get('name', sym),
-                "code": sym.replace('.TW','').replace('.TWO',''),
-                "sym": sym,
-                "price": str(p),
-                "chg": f"{c_sign}{c:.2f}%",
-                "vol": f"{v:,}",
-                "vr": f"{vr:.1f}",
-                "entry": sd.get('entry', '-'),
-                "stop": sd.get('stop', '-'),
-                "target": sd.get('target', '-'),
-                "action": sd.get('action', '觀望'),
-                "entryNote": sd.get('entry_note', ''),
-                "stopNote": sd.get('stop_note', ''),
-                "targetNote": sd.get('target_note', ''),
-                "actionNote": sd.get('action_note', ''),
-                "foreignFmt": f"{'+' if foreign_5d>=0 else ''}{foreign_5d:,}張",
-                "trustFmt": f"{'+' if trust_5d>=0 else ''}{trust_5d:,}張",
-                "foreignUp": "true" if foreign_5d >= 0 else "false",
-                "trustUp": "true" if trust_5d >= 0 else "false",
-                "instSignal": inst_signal,
-                "star": star,
-                "up": c_color
-            })
+        stocks_js = []
+        for sym, sd in stock_items_sorted:
+            stock_js = build_stock_js(sym, sd, s['name'], s['emoji'])
+            all_stocks_flat.append((sym, stock_js))
+            all_stocks_lookup[sym] = stock_js
+            if len(stocks_js) < 5:
+                stocks_js.append(stock_js)
 
         summary = f"{s['name']}族群今日平均{sign}{change:.2f}%，{s['rating']}。領漲個股為{s['top_stock']}（{'+' if s['top_change']>0 else ''}{s['top_change']:.2f}%），籌碼面建議留意法人動向與量能變化。"
 
@@ -86,6 +107,148 @@ def generate():
           <div class="bar-wrap"><div class="bar-bg"><div class="bar-fill" style="width:{score_pct}%;background:{color}"></div></div></div>
         </div>
         {"<hr class='divider'>" if i == sum(1 for x in sectors if x['avg_change']>0)-1 and i < len(sectors)-1 else ""}"""
+
+    def rank_row_html(sym, label_html, sub, val_html, val2_html=""):
+        return f"""
+        <div class="rank-row" onclick="jumpToStock('{sym}')">
+          <span class="rank-name">{label_html}</span>
+          <span class="rank-sub">{sub}</span>
+          <span class="rank-val">{val_html}</span>
+          {f'<span class="rank-val2">{val2_html}</span>' if val2_html else ''}
+        </div>"""
+
+    # 法人買超 Tab：全部個股依 外資5日+投信5日 排序，前10買超、後3~5賣超
+    foreign_sorted = sorted(all_stocks_flat, key=lambda x: x[1]['foreignTrust5d'], reverse=True)
+    foreign_buy = [x for x in foreign_sorted if x[1]['foreignTrust5d'] > 0][:10]
+    foreign_sell = [x for x in foreign_sorted if x[1]['foreignTrust5d'] < 0][-5:]
+    foreign_rows_html = '<div class="rank-section-label">法人買超</div>'
+    for sym, sj in foreign_buy:
+        foreign_rows_html += rank_row_html(
+            sym, f"{sj['star']}{sj['name']}", sj['sectorEmoji'] + sj['sectorName'],
+            f"<span style='color:#ff4444'>{'+' if sj['foreignTrust5d']>=0 else ''}{sj['foreignTrust5d']:,}張</span>"
+        )
+    if foreign_sell:
+        foreign_rows_html += '<div class="rank-section-label">法人賣超</div>'
+        for sym, sj in reversed(foreign_sell):
+            foreign_rows_html += rank_row_html(
+                sym, f"{sj['star']}{sj['name']}", sj['sectorEmoji'] + sj['sectorName'],
+                f"<span style='color:#22c55e'>{sj['foreignTrust5d']:,}張</span>"
+            )
+    if not foreign_buy and not foreign_sell:
+        foreign_rows_html = '<div class="rank-empty">目前沒有法人買賣超資料</div>'
+
+    # 大戶動向 Tab：讀 data/big_holders.json，依週變化排序；當週集保API無資料時顯示提示不崩潰
+    holders_rows_html = ""
+    if big_holders and big_holders.get('stocks'):
+        holder_entries = []
+        for sym, sj in all_stocks_flat:
+            h = big_holders['stocks'].get(sj['code_bare'])
+            if h:
+                holder_entries.append((sym, sj, h))
+        holder_entries.sort(key=lambda x: (x[2].get('ratio_change') if x[2].get('ratio_change') is not None else -999), reverse=True)
+        for sym, sj, h in holder_entries:
+            ratio = h.get('holder_ratio', 0)
+            change = h.get('ratio_change')
+            if change is None:
+                change_html = "<span style='color:#8b949e'>首次收錄</span>"
+            else:
+                change_color = "#ff4444" if change >= 0 else "#22c55e"
+                change_html = f"<span style='color:{change_color}'>{'+' if change>=0 else ''}{change:.2f}%</span>"
+            holders_rows_html += rank_row_html(
+                sym, sj['name'], sj['sectorEmoji'] + sj['sectorName'],
+                f"{ratio:.2f}%", change_html
+            )
+        if not holder_entries:
+            holders_rows_html = '<div class="rank-empty">本週尚無更新</div>'
+    else:
+        holders_rows_html = '<div class="rank-empty">本週尚無更新</div>'
+
+    # 量增排行 Tab：全部個股依量比排序
+    volume_sorted = sorted(all_stocks_flat, key=lambda x: x[1]['volumeRatioRaw'], reverse=True)
+    volume_rows_html = ""
+    for sym, sj in volume_sorted[:20]:
+        c = sj['changePctRaw']
+        c_color = "#ff4444" if c > 0 else "#22c55e"
+        volume_rows_html += rank_row_html(
+            sym, sj['name'], sj['sectorEmoji'] + sj['sectorName'],
+            f"{sj['volumeRatioRaw']:.1f}x",
+            f"<span style='color:{c_color}'>{'+' if c>0 else ''}{c:.2f}%</span>"
+        )
+    if not volume_sorted:
+        volume_rows_html = '<div class="rank-empty">目前沒有量比資料</div>'
+
+    all_stocks_json = json.dumps(all_stocks_lookup, ensure_ascii=False)
+
+    # ------------------------------------------------------------------
+    # 事件頁面：除權息(自動) + 法說會/總經/升降息(手動維護清單)
+    # ------------------------------------------------------------------
+    try:
+        with open('data/events.json', 'r', encoding='utf-8') as f:
+            events = json.load(f)
+    except Exception:
+        events = []
+
+    EVENT_TYPE_COLORS = {
+        "除權息": "#58a6ff",
+        "總經": "#a855f7",
+        "升降息": "#f97316",
+        "法說會": "#ec4899",
+    }
+
+    # bare code -> {name, sector, emoji}，用來把 related_stocks 展開成同族群個股
+    code_to_info = {}
+    sector_to_codes = {}
+    for sym, sj in all_stocks_lookup.items():
+        code_to_info[sj['code_bare']] = {"name": sj['name'], "sector": sj['sectorName'], "emoji": sj['sectorEmoji']}
+        sector_to_codes.setdefault(sj['sectorName'], set()).add(sj['code_bare'])
+
+    events_sorted = sorted(events, key=lambda e: e.get('date', ''))
+    timeline_html = ""
+    event_details = []
+    for idx, e in enumerate(events_sorted):
+        etype = e.get('type', '其他')
+        color = EVENT_TYPE_COLORS.get(etype, '#8b949e')
+        related = e.get('related_stocks', [])
+
+        impact_stocks = []
+        seen_codes = set()
+        for code in related:
+            info = code_to_info.get(code)
+            if not info or code in seen_codes:
+                continue
+            seen_codes.add(code)
+            impact_stocks.append({
+                "code": code, "name": info['name'], "sector": info['emoji'] + info['sector'],
+                "relation": "本尊", "impact": e.get('impact', '中'), "impactColor": "neutral"
+            })
+        related_sectors = {code_to_info[c]['sector'] for c in related if c in code_to_info}
+        for sector_name in related_sectors:
+            for code in sector_to_codes.get(sector_name, []):
+                if code in seen_codes:
+                    continue
+                seen_codes.add(code)
+                info = code_to_info[code]
+                impact_stocks.append({
+                    "code": code, "name": info['name'], "sector": info['emoji'] + info['sector'],
+                    "relation": "同族群", "impact": "同業關注", "impactColor": "neutral"
+                })
+
+        event_details.append({
+            "date": e.get('date', ''), "type": etype, "title": e.get('title', ''),
+            "summary": e.get('title', ''), "impactStocks": impact_stocks
+        })
+
+        timeline_html += f"""
+        <div class="ev-card" data-type="{etype}" onclick="showEventDetail({idx})">
+          <div class="ev-card-date">{e.get('date','')}</div>
+          <div class="ev-card-title">{e.get('title','')}</div>
+          <span class="ev-type-tag" style="background:{color}22;color:{color};border:1px solid {color}44">{etype}</span>
+        </div>"""
+
+    if not timeline_html:
+        timeline_html = '<div class="rank-empty">近期沒有收錄到事件</div>'
+
+    events_json = json.dumps(event_details, ensure_ascii=False)
 
     # Plotly 歷史折線圖
     line_traces = ""
@@ -113,14 +276,59 @@ def generate():
 body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-serif;font-size:13px;overflow-x:hidden}}
 .nav{{background:#161b22;border-bottom:1px solid #30363d;padding:8px 14px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}}
 .nav h1{{font-size:14px;font-weight:600}}
+.nav-left{{display:flex;align-items:center;gap:14px}}
+.nav-tabs{{display:flex;gap:4px}}
+.nav-tab{{padding:4px 12px;border-radius:5px;font-size:11px;cursor:pointer;border:1px solid transparent;background:transparent;color:#8b949e}}
+.nav-tab:hover{{background:#21262d}}
+.nav-tab.active{{background:#58a6ff22;border-color:#58a6ff66;color:#58a6ff}}
 .nav .meta{{display:flex;align-items:center;gap:8px;font-size:11px;color:#8b949e}}
 .badge{{padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600}}
 .btn-sm{{background:#21262d;border:1px solid #30363d;color:#8b949e;padding:3px 10px;border-radius:4px;font-size:11px;cursor:pointer}}
 .btn-sm:hover{{background:#30363d;color:#e6edf3}}
 .main{{display:grid;grid-template-columns:240px 1fr;height:calc(100vh - 38px);overflow:hidden}}
+/* 事件頁面 */
+.events-page{{height:calc(100vh - 38px);overflow:hidden}}
+.ev-wrap{{display:grid;grid-template-columns:320px 1fr;height:100%}}
+.ev-timeline-panel{{border-right:1px solid #30363d;display:flex;flex-direction:column;overflow:hidden}}
+.ev-filter-chips{{display:flex;gap:4px;flex-wrap:wrap;padding:10px;border-bottom:1px solid #21262d;flex-shrink:0}}
+.ev-chip{{padding:3px 9px;border-radius:12px;font-size:10px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#8b949e}}
+.ev-chip.active{{background:#58a6ff22;border-color:#58a6ff66;color:#58a6ff}}
+.ev-timeline{{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px}}
+.ev-card{{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:9px 10px;cursor:pointer;transition:border-color .15s}}
+.ev-card:hover{{border-color:#58a6ff66}}
+.ev-card.active{{border-color:#58a6ff;background:#161b22}}
+.ev-card-date{{font-size:9px;color:#8b949e;margin-bottom:4px}}
+.ev-card-title{{font-size:12px;font-weight:500;margin-bottom:6px;line-height:1.4}}
+.ev-type-tag{{display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:600}}
+.ev-detail-panel{{padding:20px;overflow-y:auto}}
+.ev-detail-empty{{color:#8b949e;font-size:13px;text-align:center;padding-top:60px}}
+.ev-detail-title{{font-size:18px;font-weight:700;margin-bottom:6px}}
+.ev-detail-meta{{display:flex;align-items:center;gap:8px;margin-bottom:16px}}
+.ev-detail-date{{font-size:11px;color:#8b949e}}
+.ev-detail-summary{{font-size:12px;color:#8b949e;line-height:1.6;padding:10px 12px;background:#161b22;border-radius:8px;border-left:3px solid #58a6ff;margin-bottom:20px}}
+.impact-table-title{{font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}}
+.impact-table{{width:100%;border-collapse:collapse;font-size:12px}}
+.impact-table th{{text-align:left;padding:7px 10px;color:#8b949e;font-weight:500;font-size:10px;border-bottom:1px solid #30363d}}
+.impact-table td{{padding:7px 10px;border-bottom:1px solid #21262d}}
+.impact-table tr:hover td{{background:#161b22}}
+.impact-relation{{font-size:10px;padding:2px 7px;border-radius:4px;background:#21262d;color:#8b949e}}
+.impact-relation.self{{background:#58a6ff22;color:#58a6ff}}
 /* LEFT */
 .left{{border-right:1px solid #30363d;padding:8px 6px;display:flex;flex-direction:column;gap:2px;overflow-y:auto}}
 .left-title{{font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:.05em;padding:0 4px;margin-bottom:4px;flex-shrink:0}}
+.rank-tabs{{display:flex;gap:3px;padding:0 2px;margin-bottom:6px;flex-shrink:0;flex-wrap:wrap}}
+.rank-tab{{padding:3px 7px;border-radius:4px;font-size:10px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#8b949e;white-space:nowrap}}
+.rank-tab.active{{background:#58a6ff22;border-color:#58a6ff66;color:#58a6ff}}
+.rank-list{{display:none;flex-direction:column;gap:2px}}
+.rank-list.active{{display:flex}}
+.rank-section-label{{font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:.05em;padding:6px 4px 2px;flex-shrink:0}}
+.rank-row{{display:flex;align-items:center;gap:4px;padding:5px 6px;border-radius:6px;cursor:pointer;transition:background .15s;flex-shrink:0}}
+.rank-row:hover{{background:#161b22}}
+.rank-name{{font-size:11px;font-weight:500;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}}
+.rank-sub{{font-size:9px;color:#8b949e;flex-shrink:0;white-space:nowrap;max-width:56px;overflow:hidden;text-overflow:ellipsis}}
+.rank-val{{font-size:10px;font-weight:700;flex-shrink:0;text-align:right;white-space:nowrap}}
+.rank-val2{{font-size:9px;flex-shrink:0;text-align:right;white-space:nowrap;width:44px}}
+.rank-empty{{font-size:11px;color:#8b949e;text-align:center;padding:20px 8px}}
 .sector-row{{display:flex;align-items:center;gap:5px;padding:5px 6px;border-radius:6px;cursor:pointer;transition:all .15s;border:1px solid transparent;flex-shrink:0}}
 .sector-row:hover{{background:#161b22}}
 .sector-row.active{{background:#161b22;border-color:#58a6ff55}}
@@ -175,7 +383,7 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
 .chart-main{{flex:1;padding:4px 14px 0;min-height:0;display:flex;flex-direction:column}}
 .kline-info-bar{{display:flex;gap:10px;flex-wrap:wrap;font-size:10px;color:#8b949e;padding:2px 0 4px;flex-shrink:0}}
 .kline-info-bar b{{color:#e6edf3;font-weight:600}}
-#mainChart .hoverlayer{{display:none}}
+#mainChart .hoverlayer .hovertext{{display:none}}
 /* 歷史趨勢區（大盤模式） */
 .history-chart{{padding:4px 14px;flex:1;min-height:0;display:none}}
 /* 底部快覽 */
@@ -194,7 +402,13 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
 <body>
 
 <div class="nav">
-  <h1>🇹🇼 台股族群每日監控</h1>
+  <div class="nav-left">
+    <h1>🇹🇼 台股族群每日監控</h1>
+    <div class="nav-tabs">
+      <button class="nav-tab active" id="nav-tab-monitor" onclick="showPage('monitor')">📊 監控</button>
+      <button class="nav-tab" id="nav-tab-events" onclick="showPage('events')">📅 事件</button>
+    </div>
+  </div>
   <div class="meta">
     <span>最後更新：{updated_at}</span>
     <span style="font-size:9px;color:#8b949e">（{delay_note}）</span>
@@ -203,11 +417,19 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
   </div>
 </div>
 
-<div class="main">
+<div class="main" id="page-monitor">
   <!-- ===== LEFT ===== -->
   <div class="left">
-    <div class="left-title">📊 族群強弱排行</div>
-    {sector_rows_html}
+    <div class="rank-tabs">
+      <button class="rank-tab active" onclick="switchRank(this,'sector')">族群強弱</button>
+      <button class="rank-tab" onclick="switchRank(this,'foreign')">法人買超</button>
+      <button class="rank-tab" onclick="switchRank(this,'holders')">大戶動向</button>
+      <button class="rank-tab" onclick="switchRank(this,'volume')">量增排行</button>
+    </div>
+    <div class="rank-list active" id="rank-sector">{sector_rows_html}</div>
+    <div class="rank-list" id="rank-foreign">{foreign_rows_html}</div>
+    <div class="rank-list" id="rank-holders">{holders_rows_html}</div>
+    <div class="rank-list" id="rank-volume">{volume_rows_html}</div>
   </div>
 
   <!-- ===== RIGHT ===== -->
@@ -339,7 +561,30 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
   </div>
 </div>
 
+<!-- ===== 事件頁面 ===== -->
+<div class="events-page" id="page-events" style="display:none">
+  <div class="ev-wrap">
+    <div class="ev-timeline-panel">
+      <div class="ev-filter-chips">
+        <button class="ev-chip active" onclick="filterEvents(this,'全部')">全部</button>
+        <button class="ev-chip" onclick="filterEvents(this,'除權息')">除權息</button>
+        <button class="ev-chip" onclick="filterEvents(this,'總經')">總經</button>
+        <button class="ev-chip" onclick="filterEvents(this,'升降息')">升降息</button>
+        <button class="ev-chip" onclick="filterEvents(this,'法說會')">法說會</button>
+      </div>
+      <div class="ev-timeline" id="ev-timeline">
+        {timeline_html}
+      </div>
+    </div>
+    <div class="ev-detail-panel" id="ev-detail-panel">
+      <div class="ev-detail-empty">👈 點擊左側事件查看詳情</div>
+    </div>
+  </div>
+</div>
+
 <script>
+const ALL_STOCKS = {all_stocks_json};
+const EVENTS = {events_json};
 const PLOT_CONFIG = {{responsive:true,displayModeBar:false,scrollZoom:true}};
 const DARK_LAYOUT = {{
   paper_bgcolor:'#0d1117',plot_bgcolor:'#0d1117',
@@ -579,7 +824,9 @@ function attachMainHover(divId) {{
   div._hoverBound = true;
   div.on('plotly_hover', (ev) => {{
     if(!ev.points || !ev.points.length) return;
-    showKlineInfoAt(ev.points[0].pointIndex);
+    const p=ev.points[0];
+    const idx=(p.pointIndex!==undefined)?p.pointIndex:p.pointNumber;
+    showKlineInfoAt(idx);
   }});
   div.on('plotly_unhover', () => {{
     if(_klineInfo) showKlineInfoAt(_klineInfo.dates.length-1);
@@ -646,6 +893,97 @@ function setPeriod(btn) {{
   btn.classList.add('active');
   currentPeriod=btn.textContent;
   renderKline();
+}}
+
+// 左側排行 Tab 切換：族群強弱／法人買超／大戶動向／量增排行
+function switchRank(btn, tab) {{
+  document.querySelectorAll('.rank-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.rank-list').forEach(el=>el.classList.remove('active'));
+  document.getElementById('rank-'+tab).classList.add('active');
+}}
+
+// 從法人買超／大戶動向／量增排行點擊個股，直接跳轉顯示該股票K線
+function jumpToStock(sym) {{
+  const s = ALL_STOCKS[sym];
+  if(!s) return;
+  showPage('monitor');
+  document.querySelectorAll('.sector-row').forEach(r=>r.classList.remove('active'));
+  resetHistoryToggle();
+  document.getElementById('market-header').style.display='none';
+  document.getElementById('sector-header').style.display='block';
+  document.getElementById('history-chart').style.display='none';
+  document.getElementById('chart-main').style.display='flex';
+  document.getElementById('chart-main').style.flexDirection='column';
+
+  document.getElementById('s-title').textContent=s.sectorEmoji+' '+s.name;
+  document.getElementById('s-avg').textContent=s.chg;
+  document.getElementById('s-avg').style.color=s.up==='true'?'#ff4444':'#22c55e';
+  document.getElementById('s-rating').textContent=s.sectorName;
+  document.getElementById('s-rating').style.color='#8b949e';
+  document.getElementById('s-summary').textContent=`${{s.name}}（${{s.sectorName}}）現價 ${{s.price}}，${{s.instSignal}}。`;
+
+  const tabsEl=document.getElementById('stock-tabs');
+  tabsEl.innerHTML='';
+  const btn=document.createElement('button');
+  const isUp=s.up==='true';
+  btn.className='stock-tab '+(isUp?'active-up':'active-down');
+  btn.textContent=(s.star||'')+s.name+' '+s.chg;
+  btn.onclick=()=>selectStock(s,btn,isUp);
+  tabsEl.appendChild(btn);
+
+  document.getElementById('stock-info-panel').style.display='block';
+  selectStock(s,btn,isUp);
+}}
+
+// ---- 事件頁面：📊監控／📅事件 分頁切換、分類篩選、事件詳情 ----
+function showPage(page) {{
+  const isMonitor = page === 'monitor';
+  document.getElementById('page-monitor').style.display = isMonitor ? 'grid' : 'none';
+  document.getElementById('page-events').style.display = isMonitor ? 'none' : 'block';
+  document.getElementById('nav-tab-monitor').classList.toggle('active', isMonitor);
+  document.getElementById('nav-tab-events').classList.toggle('active', !isMonitor);
+}}
+
+let _currentEventFilter = '全部';
+function filterEvents(btn, type) {{
+  _currentEventFilter = type;
+  document.querySelectorAll('.ev-chip').forEach(c=>c.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.ev-card').forEach(card=>{{
+    const show = (type === '全部') || (card.dataset.type === type);
+    card.style.display = show ? '' : 'none';
+  }});
+}}
+
+function showEventDetail(idx) {{
+  const ev = EVENTS[idx];
+  if(!ev) return;
+  document.querySelectorAll('.ev-card').forEach((card,i)=>card.classList.toggle('active', i===idx));
+
+  const rows = (ev.impactStocks || []).map(s => {{
+    const relCls = s.relation === '本尊' ? 'impact-relation self' : 'impact-relation';
+    return `<tr onclick="jumpToStock('${{s.code}}.TW')" style="cursor:pointer">
+      <td>${{s.name}}</td>
+      <td>${{s.sector}}</td>
+      <td><span class="${{relCls}}">${{s.relation}}</span></td>
+      <td>${{s.impact}}</td>
+    </tr>`;
+  }}).join('');
+
+  document.getElementById('ev-detail-panel').innerHTML = `
+    <div class="ev-detail-title">${{ev.title}}</div>
+    <div class="ev-detail-meta">
+      <span class="ev-detail-date">${{ev.date}}</span>
+      <span class="ev-type-tag" style="background:#58a6ff22;color:#58a6ff;border:1px solid #58a6ff44">${{ev.type}}</span>
+    </div>
+    <div class="ev-detail-summary">${{ev.summary}}</div>
+    <div class="impact-table-title">📋 影響個股</div>
+    <table class="impact-table">
+      <thead><tr><th>個股名稱</th><th>所屬族群</th><th>關聯性</th><th>預期影響</th></tr></thead>
+      <tbody>${{rows || '<tr><td colspan="4" style="color:#8b949e;text-align:center">尚無關聯個股資料</td></tr>'}}</tbody>
+    </table>
+  `;
 }}
 
 function selectSector(el, name, emoji, rating, summary, isUp, stocks) {{
