@@ -100,10 +100,14 @@ def collect_ex_dividend_tpex(target_codes):
         print(f"❌ TPEx除權息資料抓取失敗，完整錯誤: {type(e).__name__}: {e}")
     return events
 
-def collect_investor_conferences(target_codes):
-    """法說會：MOPS 對程式化查詢有機器人防護（回傳「安全性考量」拒絕頁），
-    目前無法可靠自動抓取，先回傳空清單並記錄，不影響其他事件來源；
-    之後若找到可行的存取方式（例如官方開放資料）可以在這裡補上"""
+def collect_investor_conferences(target_codes, window_days=60):
+    """法說會：查詢區間為「今天起算未來window_days天」（預設60天）。
+    ⚠️ 目前MOPS(公開資訊觀測站)對程式化查詢有機器人防護，無論用什麼瀏覽器標頭、
+    session、Referer都會回傳「因為安全性考量，您所執行的頁面無法呈現」拒絕頁，
+    已實際測試多組請求方式仍無法繞過，因此這不是查詢區間過窄的問題，而是目前
+    完全沒有可用的自動化資料來源。這裡先回傳空清單，前端會顯示「近期無相關事件」
+    提示文字而非空白區塊；之後若找到可行的存取方式（例如官方開放資料）可以在這裡補上，
+    屆時window_days參數已經是60天，直接接上即可"""
     try:
         return []
     except Exception as e:
@@ -117,10 +121,71 @@ MANUAL_EVENTS = [
     #  "related_stocks": [], "impact": "大"},
 ]
 
-def collect(window_days=30, lookback_days=3):
-    """收集近期(含最近3天已發生)~未來30天內的事件：除權息自動抓取(TWSE+TPEx)，
-    法說會/總經/升降息先用手動維護清單。任一來源失敗都不影響其他來源與已存在的資料，
-    確保網頁不會因抓取失敗而崩潰"""
+def _nth_weekday(year, month, weekday, n=1):
+    """該月第n個指定星期幾（weekday: 0=一 ... 4=五），用來算「每月第一個週五」這類規則性日期，
+    保證正確、不依賴人工記憶"""
+    d = datetime.date(year, month, 1)
+    offset = (weekday - d.weekday()) % 7
+    d += datetime.timedelta(days=offset + 7 * (n - 1))
+    return d
+
+# ---------------------------------------------------------------------------
+# 總經/升降息固定清單（MACRO_EVENTS）
+#
+# ⚠️ FOMC利率決議、台灣央行理監事會議、美國CPI公布日 是官方排定的具體日期，
+#    以下為 2026 年最佳整理，「請每年對照官方行事曆核實更新」：
+#    - Fed FOMC: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+#    - 台灣央行理監事會議: https://www.cbc.gov.tw/
+#    - 美國CPI: https://www.bls.gov/schedule/news_release/cpi.htm
+#
+# 「非農就業數據」「景氣對策信號」是固定規則（每月第一個週五／每月27日左右），
+# 用程式算出來，不受人工記憶誤差影響。
+# ---------------------------------------------------------------------------
+
+_FOMC_DATES_2026 = ["2026-01-28", "2026-03-18", "2026-04-29", "2026-06-17",
+                    "2026-07-29", "2026-09-16", "2026-10-28", "2026-12-16"]
+_CBC_DATES_2026 = ["2026-03-19", "2026-06-18", "2026-09-17", "2026-12-17"]
+_US_CPI_DATES_2026 = ["2026-07-14", "2026-08-13", "2026-09-11", "2026-10-14",
+                      "2026-11-13", "2026-12-11"]
+
+def _build_macro_events(year=2026):
+    events = []
+    for d in _FOMC_DATES_2026:
+        if datetime.date.fromisoformat(d).year == year:
+            events.append({"date": d, "type": "升降息", "title": "美國聯準會FOMC利率決議",
+                            "related_stocks": [], "impact": "極大",
+                            "summary": "Fed公布最新基準利率決議與經濟展望，影響全球資金成本與風險偏好。"})
+    for d in _CBC_DATES_2026:
+        if datetime.date.fromisoformat(d).year == year:
+            events.append({"date": d, "type": "升降息", "title": "台灣央行理監事會議",
+                            "related_stocks": [], "impact": "大",
+                            "summary": "央行公布重貼現率與貨幣政策方向，影響台幣利率與市場資金水位。"})
+    for d in _US_CPI_DATES_2026:
+        if datetime.date.fromisoformat(d).year == year:
+            events.append({"date": d, "type": "總經", "title": "美國CPI消費者物價指數公布",
+                            "related_stocks": [], "impact": "大",
+                            "summary": "美國通膨數據公布，是市場判斷Fed後續利率路徑的重要依據。"})
+    for month in range(1, 13):
+        nfp_date = _nth_weekday(year, month, 4, 1)  # 週五=4，每月第一個週五
+        events.append({"date": nfp_date.isoformat(), "type": "總經", "title": "美國非農就業數據公布",
+                        "related_stocks": [], "impact": "大",
+                        "summary": "美國就業市場數據公布，反映景氣與勞動市場強弱，牽動Fed政策預期。"})
+        signal_date = datetime.date(year, month, 27)
+        events.append({"date": signal_date.isoformat(), "type": "總經", "title": "台灣景氣對策信號公布",
+                        "related_stocks": [], "impact": "中",
+                        "summary": "國發會公布景氣對策信號燈號，反映台灣整體景氣循環位置。"})
+    return events
+
+MACRO_EVENTS = _build_macro_events(2026)
+
+def collect(window_days=30, lookback_days=3, macro_window_days=120, conference_window_days=60):
+    """收集近期事件，存入data/events.json：
+    - 除權息：自動抓取(TWSE+TPEx)，區間為 今天-lookback_days ~ 今天+window_days
+    - 總經/升降息：MACRO_EVENTS固定清單，區間較寬(預設120天)，因FOMC/央行理監事會議
+      間隔常超過30天，用太窄的區間會導致「總經」「升降息」Tab永遠是空的
+    - 法說會：目前MOPS查詢被機器人防護擋下(見collect_investor_conferences說明)，
+      查詢區間為今天起算未來conference_window_days天(預設60天)
+    任一來源失敗都不影響其他來源與已存在的資料，確保網頁不會因抓取失敗而崩潰"""
     os.makedirs(DATA_DIR, exist_ok=True)
     target_codes = _target_codes()
     name_map = _stock_name_map()
@@ -128,6 +193,7 @@ def collect(window_days=30, lookback_days=3):
     today = datetime.date.today()
     window_start = today - datetime.timedelta(days=lookback_days)
     window_end = today + datetime.timedelta(days=window_days)
+    macro_window_end = today + datetime.timedelta(days=macro_window_days)
 
     raw = []
     raw += collect_ex_dividend_twse(target_codes)
@@ -159,7 +225,15 @@ def collect(window_days=30, lookback_days=3):
         if window_start <= event_date <= window_end:
             events.append(e)
 
-    for e in collect_investor_conferences(target_codes):
+    for e in MACRO_EVENTS:
+        try:
+            event_date = datetime.date.fromisoformat(e['date'])
+        except (ValueError, KeyError):
+            continue
+        if window_start <= event_date <= macro_window_end:
+            events.append(e)
+
+    for e in collect_investor_conferences(target_codes, window_days=conference_window_days):
         events.append(e)
 
     events.sort(key=lambda x: x['date'])

@@ -302,6 +302,7 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
 .ev-type-tag{{display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:600}}
 .ev-detail-panel{{padding:20px;overflow-y:auto}}
 .ev-detail-empty{{color:#8b949e;font-size:13px;text-align:center;padding-top:60px}}
+.ev-empty-msg{{color:#8b949e;font-size:13px;text-align:center;padding-top:60px}}
 .ev-detail-title{{font-size:18px;font-weight:700;margin-bottom:6px}}
 .ev-detail-meta{{display:flex;align-items:center;gap:8px;margin-bottom:16px}}
 .ev-detail-date{{font-size:11px;color:#8b949e}}
@@ -574,6 +575,7 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
       </div>
       <div class="ev-timeline" id="ev-timeline">
         {timeline_html}
+        <div class="ev-empty-msg" id="ev-empty-msg" style="display:none">近期無相關事件</div>
       </div>
     </div>
     <div class="ev-detail-panel" id="ev-detail-panel">
@@ -950,16 +952,22 @@ function filterEvents(btn, type) {{
   _currentEventFilter = type;
   document.querySelectorAll('.ev-chip').forEach(c=>c.classList.remove('active'));
   btn.classList.add('active');
+  let visibleCount = 0;
   document.querySelectorAll('.ev-card').forEach(card=>{{
     const show = (type === '全部') || (card.dataset.type === type);
     card.style.display = show ? '' : 'none';
+    if(show) visibleCount++;
   }});
+  const emptyMsg = document.getElementById('ev-empty-msg');
+  if(emptyMsg) emptyMsg.style.display = visibleCount === 0 ? '' : 'none';
 }}
 
 function showEventDetail(idx) {{
   const ev = EVENTS[idx];
   if(!ev) return;
   document.querySelectorAll('.ev-card').forEach((card,i)=>card.classList.toggle('active', i===idx));
+
+  const isMarketWide = (ev.type === '總經' || ev.type === '升降息') && (!ev.impactStocks || ev.impactStocks.length === 0);
 
   const rows = (ev.impactStocks || []).map(s => {{
     const relCls = s.relation === '本尊' ? 'impact-relation self' : 'impact-relation';
@@ -971,6 +979,15 @@ function showEventDetail(idx) {{
     </tr>`;
   }}).join('');
 
+  const impactSection = isMarketWide
+    ? `<div class="impact-table-title">📋 影響範圍</div>
+       <div class="ev-empty-msg" style="padding-top:20px">🌐 影響全市場，非個股事件</div>`
+    : `<div class="impact-table-title">📋 影響個股</div>
+       <table class="impact-table">
+         <thead><tr><th>個股名稱</th><th>所屬族群</th><th>關聯性</th><th>預期影響</th></tr></thead>
+         <tbody>${{rows || '<tr><td colspan="4" style="color:#8b949e;text-align:center">尚無關聯個股資料</td></tr>'}}</tbody>
+       </table>`;
+
   document.getElementById('ev-detail-panel').innerHTML = `
     <div class="ev-detail-title">${{ev.title}}</div>
     <div class="ev-detail-meta">
@@ -978,11 +995,7 @@ function showEventDetail(idx) {{
       <span class="ev-type-tag" style="background:#58a6ff22;color:#58a6ff;border:1px solid #58a6ff44">${{ev.type}}</span>
     </div>
     <div class="ev-detail-summary">${{ev.summary}}</div>
-    <div class="impact-table-title">📋 影響個股</div>
-    <table class="impact-table">
-      <thead><tr><th>個股名稱</th><th>所屬族群</th><th>關聯性</th><th>預期影響</th></tr></thead>
-      <tbody>${{rows || '<tr><td colspan="4" style="color:#8b949e;text-align:center">尚無關聯個股資料</td></tr>'}}</tbody>
-    </table>
+    ${{impactSection}}
   `;
 }}
 
