@@ -126,7 +126,19 @@ def collect_investor_conferences(target_codes, window_days=60):
     已實際測試多組請求方式仍無法繞過，因此這不是查詢區間過窄的問題，而是目前
     完全沒有可用的自動化資料來源。這裡先回傳空清單，前端會顯示「近期無相關事件」
     提示文字而非空白區塊；之後若找到可行的存取方式（例如官方開放資料）可以在這裡補上，
-    屆時window_days參數已經是60天，直接接上即可"""
+    屆時window_days參數已經是60天，直接接上即可。
+
+    ⚠️ 若之後在這裡補上真實資料來源，回傳的每筆事件「格式必須跟MANUAL_EVENTS的法說會
+    範例完全一致」，否則前端(dashboard_generator.py的related_stocks展開邏輯)會渲染異常：
+    - date: "YYYY-MM-DD"
+    - type: "法說會"
+    - title: 事件標題（不可與summary重複）
+    - impact: "極大"/"大"/"中"/"小"
+    - summary: 實質內容摘要（市場關注重點），禁止與title重複或雷同
+    - related_stocks: 陣列，每檔含 stock(股票代號,純數字不含.TW/.TWO)/sector(族群名稱,
+      需對應config.py的SECTORS鍵值)/relation("本尊"/"同族群"/"供應鏈"等)/impact(影響方向文字)/
+      reason(原因說明文字)
+    """
     try:
         return []
     except Exception as e:
@@ -134,20 +146,34 @@ def collect_investor_conferences(target_codes, window_days=60):
         return []
 
 # 手動維護清單：目前沒有可靠自動化來源、需要人工補充的一次性事件（例如已知的個股法說會日期）。
-# 格式需與其他事件來源一致，每筆事件都要有summary（禁止與title重複）+ related_stocks或affected_sectors其中一種：
-#   個股類事件範例：
-#   {"date": "2026-08-15", "type": "法說會", "title": "台積電法人說明會", "impact": "大",
-#    "summary": "台積電召開法人說明會，公布上季財報與下季展望。市場關注重點：訂單能見度、資本支出計畫、"
-#                "先進製程良率與產能利用率、毛利率展望。",
-#    "related_stocks": [
-#        {"stock": "2330", "sector": "神山群", "relation": "本尊", "impact": "法說會後股價波動",
-#         "reason": "財測與展望優於或劣於市場預期會直接反映在隔日股價，需留意管理層對下季展望的用詞。"},
-#        {"stock": "2303", "sector": "神山群", "relation": "同族群",
-#         "impact": "同業比較基準",
-#         "reason": "與台積電同屬神山群，法說會揭露的產業展望常被市場當作同業比較基準，帶動族群連動。"}
-#    ]}
-#   主題類事件範例（見MACRO_EVENTS的affected_sectors寫法）
-MANUAL_EVENTS = []
+# 格式需與其他事件來源一致，每筆事件都要有summary（禁止與title重複）+ related_stocks或affected_sectors其中一種，
+# 詳細欄位格式規範見collect_investor_conferences()的docstring。
+MANUAL_EVENTS = [
+    {
+        "date": "2026-07-16",
+        "type": "法說會",
+        "title": "台積電 2026年第二季法人說明會",
+        "impact": "極大",
+        "summary": "台積電將於下午2點在台北文華東方酒店召開法說會，公布第二季財務報告並提出第三季業績展望。"
+                   "市場關注重點包括：上季財測達成狀況（原財測美元營收季增約10.3%、毛利率65.5%-67.5%）、"
+                   "AI晶片與先進製程需求是否持續強勁、資本支出計畫是否上修、以及海外設廠進度。"
+                   "財報公布前7月6日至7月15日為緘默期。",
+        "related_stocks": [
+            {"stock": "2330", "sector": "神山群", "relation": "本尊",
+             "impact": "財測與展望是本季台股風向球，優於預期可能帶動大盤，低於預期或展望保守則可能引發修正",
+             "reason": "全球晶圓代工龍頭，財測牽動整體半導體供應鏈信心"},
+            {"stock": "2303", "sector": "神山群", "relation": "同族群",
+             "impact": "同業比較基準，資金可能因台積電表現而在晶圓代工股之間輪動",
+             "reason": "同為晶圓代工廠，成熟製程雖產品線不同，仍受市場情緒連動"},
+            {"stock": "6770", "sector": "神山群", "relation": "同族群",
+             "impact": "同日亦召開法說會，市場關注度提高，股價波動可能放大",
+             "reason": "同為晶圓代工同業，且同日召開法說會"},
+            {"stock": "5347", "sector": "神山群", "relation": "同族群",
+             "impact": "資金風向指標，台積電展望偏多有利成熟製程類股情緒",
+             "reason": "同屬晶圓代工族群，特殊製程與台積電產品線互補"},
+        ]
+    },
+]
 
 def _nth_weekday(year, month, weekday, n=1):
     """該月第n個指定星期幾（weekday: 0=一 ... 4=五），用來算「每月第一個週五」這類規則性日期，
