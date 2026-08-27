@@ -34,6 +34,7 @@
     document.getElementById('home-tab-hot').style.display = tab === 'hot' ? 'block' : 'none';
     document.getElementById('home-tab-industry').style.display = tab === 'industry' ? 'block' : 'none';
     if (tab === 'industry') renderIndustryTab();
+    else renderHomeEvents();
   }
   window.switchHomeTab = switchHomeTab;
 
@@ -70,14 +71,16 @@
   // ============================================================
   function renderHome() {
     const stockList = Object.values(DATA.allStocks);
-    const upCount = stockList.filter(s => s.changePctRaw > 0).length;
-    const downCount = stockList.filter(s => s.changePctRaw < 0).length;
-    const flatCount = stockList.length - upCount - downCount;
+    const trackedUp = stockList.filter(s => s.changePctRaw > 0).length;
+    const trackedDown = stockList.filter(s => s.changePctRaw < 0).length;
+    const mb = DATA.marketBreadth;
     const inst = DATA.latestInstitutionalTotal;
     const statsEl = document.getElementById('home-stats');
     statsEl.innerHTML = '';
     const cards = [
-      { name: '追蹤個股上漲 / 下跌家數', num: `<span class="up">${upCount}</span> / <span class="down">${downCount}</span>`, chg: `平盤 ${flatCount} 檔（共追蹤 ${stockList.length} 檔）` },
+      mb
+        ? { name: '台股上漲 / 下跌家數', num: `<span class="up">${mb.up}</span> / <span class="down">${mb.down}</span>`, chg: `平盤 ${mb.flat} 檔（${mb.market}共 ${mb.total} 檔；追蹤股票中 ${trackedUp}漲/${trackedDown}跌）` }
+        : { name: '追蹤個股上漲 / 下跌家數', num: `<span class="up">${trackedUp}</span> / <span class="down">${trackedDown}</span>`, chg: `全市場家數尚無資料（共追蹤 ${stockList.length} 檔）` },
       { name: '三大法人合計買賣超', num: inst ? fmtSignedLots(inst.foreign + inst.trust + inst.dealer) : '-',
         chg: inst ? `外資 ${fmtSignedLots(inst.foreign)}　投信 ${fmtSignedLots(inst.trust)}` : `尚無資料`,
         cls: inst && (inst.foreign + inst.trust + inst.dealer) >= 0 ? 'up' : 'down' },
@@ -93,7 +96,12 @@
     hb.innerHTML = '';
     hot.forEach(([sym, s]) => hb.insertAdjacentHTML('beforeend', stockRowHtml(sym, s)));
 
-    const evEl = document.getElementById('home-events');
+    renderHomeEvents();
+  }
+
+  function renderHomeEvents() {
+    document.getElementById('home-side-title').textContent = '最新事件';
+    const evEl = document.getElementById('home-side-content');
     evEl.innerHTML = '';
     DATA.events.slice(-5).reverse().forEach(e => {
       evEl.insertAdjacentHTML('beforeend', `<a class="news-item"><span class="tag">${e.type}</span><span class="t">${e.date}</span>${e.title}</a>`);
@@ -133,23 +141,22 @@
         <td>${s.topStock}</td>
       </tr>`);
     });
-    document.getElementById('home-industry-detail').style.display = 'none';
+    renderHomeEvents();
     document.querySelectorAll('#home-industry-table-body tr').forEach(r => r.classList.remove('active-row'));
   }
   function showIndustryDetail(sectorName) {
     const sector = DATA.sectors.find(s => s.name === sectorName);
     if (!sector) return;
-    const detail = document.getElementById('home-industry-detail');
-    detail.style.display = 'block';
+    document.getElementById('home-side-title').textContent = `${sector.emoji} ${sector.name} 成分股`;
+    const detail = document.getElementById('home-side-content');
     detail.innerHTML = `
-      <div class="section-head" style="margin-bottom:10px"><h2 style="font-size:15px">${sector.emoji} ${sector.name} 成分股</h2></div>
-      <div class="chip-row" id="industry-chip-row"></div>
-      <div class="industry-preview" id="industry-preview" style="display:none">
+      <div class="chip-row" id="industry-chip-row" style="padding:0 16px 16px"></div>
+      <div class="industry-preview" id="industry-preview" style="display:none;margin:0 16px 16px;padding-top:16px">
         <div class="section-head" style="margin-bottom:8px">
-          <h2 style="font-size:14px" id="industry-preview-name">-</h2>
+          <h2 style="font-size:13px" id="industry-preview-name">-</h2>
           <button class="btn-sm active-up" id="industry-preview-btn">查看個股頁 →</button>
         </div>
-        <div id="industry-preview-chart" style="height:220px"></div>
+        <div id="industry-preview-chart" style="height:360px"></div>
       </div>`;
     const chipRow = document.getElementById('industry-chip-row');
     let firstSym = null;
@@ -182,19 +189,7 @@
     chartEl.innerHTML = '';
     const k = await fetchKline(sym);
     if (!k || !k.dates.length) { chartEl.innerHTML = '<div class="rank-empty">尚無K線資料</div>'; return; }
-    const n = k.dates.length, from = Math.max(0, n - 60);
-    const dates = k.dates.slice(from), o = k.o.slice(from), h = k.h.slice(from), l = k.l.slice(from), c = k.c.slice(from);
-    const tickvals = dates.filter((_, i) => i % 10 === 0);
-    Plotly.newPlot(chartEl, [{
-      type: 'candlestick', x: dates, open: o, high: h, low: l, close: c,
-      increasing: { line: { color: COLORS.up }, fillcolor: COLORS.up },
-      decreasing: { line: { color: COLORS.down }, fillcolor: COLORS.down }
-    }], {
-      paper_bgcolor: COLORS.surface, plot_bgcolor: COLORS.surface, font: { color: COLORS.inkMuted, size: 10 },
-      margin: { l: 44, r: 8, t: 4, b: 20 }, showlegend: false, dragmode: false,
-      xaxis: { gridcolor: COLORS.grid, showgrid: true, zeroline: false, rangeslider: { visible: false }, type: 'category', tickmode: 'array', tickvals, ticktext: tickvals.map(x => x.slice(5)) },
-      yaxis: { gridcolor: COLORS.grid, showgrid: true, zeroline: false, side: 'right' }
-    }, { responsive: true, displayModeBar: false });
+    renderKlineInto('industry-preview-chart', k, false);
   }
 
   // ============================================================
@@ -562,10 +557,16 @@
     const canvas = document.getElementById('mainChart');
     if (!canvas || canvas.offsetParent === null) return;
     const d = aggregateData(baseKData, currentPeriod);
+    renderKlineInto('mainChart', d, true);
+  }
+
+  // 個股頁K線圖(技術分析Tab)與產業排行成分股預覽共用同一套繪圖邏輯，
+  // 確保候選股/成分股點出來的圖跟個股頁看到的是同一張圖(K線+MA5/20/60+布林通道+KD+成交量)，
+  // 差別只在後者不需要互動式十字線資訊列(interactive=false)。
+  function renderKlineInto(divId, d, interactive) {
     if (!d.dates || d.dates.length === 0) return;
     const boll = calcBoll(d.c), kd = calcKD(d.h, d.l, d.c);
     const ma5 = calcMA(d.c, 5), ma20 = calcMA(d.c, 20), ma60 = calcMA(d.c, 60);
-    _klineInfo = { dates: d.dates, o: d.o, h: d.h, l: d.l, c: d.c, v: d.v, ma5, ma20, ma60, bollU: boll.upper, bollL: boll.lower, kdK: kd.K, kdD: kd.D };
 
     const maxIdx = d.dates.length - 1;
     const tickvals = d.dates.filter((_, i) => i % 10 === 0);
@@ -589,7 +590,7 @@
     if (hasVolume) traces.push({ x: d.dates, y: d.v, type: 'bar', marker: { color: d.colors, opacity: 0.8 }, name: '成交量', xaxis: 'x', yaxis: 'y3' });
     const annotations = hasVolume ? [] : [{ text: '無成交量資料', xref: 'paper', yref: 'paper', x: 0.5, y: 0.075, showarrow: false, font: { color: COLORS.inkMuted, size: 10 } }];
 
-    Plotly.newPlot('mainChart', traces, {
+    Plotly.newPlot(divId, traces, {
       paper_bgcolor: COLORS.surface, plot_bgcolor: COLORS.surface, font: { color: COLORS.inkMuted, size: 10 },
       margin: { l: 50, r: 8, t: 4, b: 20 }, showlegend: false, dragmode: 'pan', hovermode: 'x unified', annotations,
       xaxis: { gridcolor: COLORS.grid, showgrid: true, zeroline: false, rangeslider: { visible: false }, type: 'category', range: [0, maxIdx], tickmode: 'array', tickvals, ticktext, ...spike },
@@ -598,10 +599,13 @@
       yaxis3: { gridcolor: COLORS.grid, showgrid: true, zeroline: false, side: 'right', fixedrange: true, domain: [0, 0.15], showticklabels: false, showspikes: true }
     }, PLOT_CONFIG);
 
-    attachZoomBound('mainChart', maxIdx);
-    attachShiftWheelPan('mainChart');
-    attachMainHover('mainChart');
-    showKlineInfoAt(maxIdx);
+    if (interactive) {
+      _klineInfo = { dates: d.dates, o: d.o, h: d.h, l: d.l, c: d.c, v: d.v, ma5, ma20, ma60, bollU: boll.upper, bollL: boll.lower, kdK: kd.K, kdD: kd.D };
+      attachZoomBound(divId, maxIdx);
+      attachShiftWheelPan(divId);
+      attachMainHover(divId);
+      showKlineInfoAt(maxIdx);
+    }
   }
 
   function attachZoomBound(divId, maxIdx) {

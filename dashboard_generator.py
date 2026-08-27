@@ -127,6 +127,7 @@ def generate():
     events = _load_json('data/events.json', [])
     inst_history = _load_institutional_history()
     latest_inst_total = _latest_day_institutional_total(inst_history)
+    market_breadth = _load_json('data/market_breadth.json', None)
 
     sectors_raw = analysis.get('sectors', [])
     updated_at = analysis.get('updated_at', '載入中')
@@ -201,15 +202,13 @@ def generate():
         "updatedAt": updated_at,
         "delayNote": delay_note,
         "sentiment": sentiment,
-        "upCount": analysis.get('up_count', 0),
-        "downCount": analysis.get('down_count', 0),
-        "flatCount": analysis.get('flat_count', 0),
         "topSector": analysis.get('top_sector', '-'),
         "sectors": sectors_payload,
         "allStocks": all_stocks,
         "events": event_details,
         "institutionalHistory": inst_history,
         "latestInstitutionalTotal": latest_inst_total,
+        "marketBreadth": market_breadth,
     }
     dashboard_data_json = json.dumps(payload, ensure_ascii=False)
 
@@ -270,14 +269,13 @@ def generate():
           <table><thead><tr><th>產業別</th><th>漲跌幅</th><th>評分</th><th>成交量(張)</th><th>龍頭股</th></tr></thead>
             <tbody id="home-industry-table-body"></tbody>
           </table>
-          <div id="home-industry-detail" class="padded" style="display:none"></div>
         </div>
       </div>
     </div>
     <div class="side-stack">
       <div class="card">
-        <div class="section-head padded"><h2>最新事件</h2></div>
-        <div id="home-events"></div>
+        <div class="section-head padded"><h2 id="home-side-title">最新事件</h2></div>
+        <div id="home-side-content"></div>
       </div>
     </div>
   </div>
