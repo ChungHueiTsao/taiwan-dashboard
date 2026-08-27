@@ -30,11 +30,11 @@ def get_rating(avg_change):
 def get_market_sentiment(up_count, total):
     ratio = up_count / total if total > 0 else 0
     if ratio >= 0.6:
-        return {"label": "🟢 偏多", "color": "#22c55e"}
+        return {"label": "🟢 偏多", "color": "#2F8F5B"}
     elif ratio >= 0.4:
-        return {"label": "🟡 中性", "color": "#eab308"}
+        return {"label": "🟡 中性", "color": "#C9970C"}
     else:
-        return {"label": "🔴 偏空", "color": "#ff4444"}
+        return {"label": "🔴 偏空", "color": "#C6423D"}
 
 def analyze():
     try:

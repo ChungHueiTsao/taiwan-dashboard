@@ -7,7 +7,7 @@ def generate():
         with open('data/analysis.json', 'r', encoding='utf-8') as f:
             analysis = json.load(f)
     except:
-        analysis = {"updated_at": "載入中", "market_sentiment": {"label": "🟡 中性", "color": "#eab308"},
+        analysis = {"updated_at": "載入中", "market_sentiment": {"label": "🟡 中性", "color": "#C9970C"},
                     "up_count": 0, "flat_count": 0, "down_count": 0, "top_sector": "-", "sectors": []}
 
     history_data = {}
@@ -21,7 +21,7 @@ def generate():
 
     sectors = analysis.get('sectors', [])
     updated_at = analysis.get('updated_at', '載入中')
-    sentiment = analysis.get('market_sentiment', {"label": "🟡 中性", "color": "#eab308"})
+    sentiment = analysis.get('market_sentiment', {"label": "🟡 中性", "color": "#C9970C"})
     data_source = analysis.get('data_source', 'yfinance')
     delay_note = "盤中即時（延遲約5秒）" if data_source == 'realtime' else "資料延遲約15分鐘"
 
@@ -81,7 +81,7 @@ def generate():
 
     for i, s in enumerate(sectors):
         change = s['avg_change']
-        color = "#ff4444" if change > 0 else "#22c55e"
+        color = "var(--up)" if change > 0 else "var(--down)"
         sign = "+" if change > 0 else ""
         score_pct = max(3, min(97, s['score']))
         is_up = "true" if change > 0 else "false"
@@ -125,14 +125,14 @@ def generate():
     for sym, sj in foreign_buy:
         foreign_rows_html += rank_row_html(
             sym, f"{sj['star']}{sj['name']}", sj['sectorEmoji'] + sj['sectorName'],
-            f"<span style='color:#ff4444'>{'+' if sj['foreignTrust5d']>=0 else ''}{sj['foreignTrust5d']:,}張</span>"
+            f"<span style='color:var(--up)'>{'+' if sj['foreignTrust5d']>=0 else ''}{sj['foreignTrust5d']:,}張</span>"
         )
     if foreign_sell:
         foreign_rows_html += '<div class="rank-section-label">法人賣超</div>'
         for sym, sj in reversed(foreign_sell):
             foreign_rows_html += rank_row_html(
                 sym, f"{sj['star']}{sj['name']}", sj['sectorEmoji'] + sj['sectorName'],
-                f"<span style='color:#22c55e'>{sj['foreignTrust5d']:,}張</span>"
+                f"<span style='color:var(--down)'>{sj['foreignTrust5d']:,}張</span>"
             )
     if not foreign_buy and not foreign_sell:
         foreign_rows_html = '<div class="rank-empty">目前沒有法人買賣超資料</div>'
@@ -150,9 +150,9 @@ def generate():
             ratio = h.get('holder_ratio', 0)
             change = h.get('ratio_change')
             if change is None:
-                change_html = "<span style='color:#8b949e'>首次收錄</span>"
+                change_html = "<span style='color:var(--ink-muted)'>首次收錄</span>"
             else:
-                change_color = "#ff4444" if change >= 0 else "#22c55e"
+                change_color = "var(--up)" if change >= 0 else "var(--down)"
                 change_html = f"<span style='color:{change_color}'>{'+' if change>=0 else ''}{change:.2f}%</span>"
             holders_rows_html += rank_row_html(
                 sym, sj['name'], sj['sectorEmoji'] + sj['sectorName'],
@@ -168,7 +168,7 @@ def generate():
     volume_rows_html = ""
     for sym, sj in volume_sorted[:20]:
         c = sj['changePctRaw']
-        c_color = "#ff4444" if c > 0 else "#22c55e"
+        c_color = "var(--up)" if c > 0 else "var(--down)"
         volume_rows_html += rank_row_html(
             sym, sj['name'], sj['sectorEmoji'] + sj['sectorName'],
             f"{sj['volumeRatioRaw']:.1f}x",
@@ -189,10 +189,10 @@ def generate():
         events = []
 
     EVENT_TYPE_COLORS = {
-        "除權息": "#58a6ff",
-        "總經": "#a855f7",
-        "升降息": "#f97316",
-        "法說會": "#ec4899",
+        "除權息": "#A97323",
+        "總經": "#8B6BAF",
+        "升降息": "#C97A2B",
+        "法說會": "#C25C8A",
     }
 
     # bare code -> {name, sector, emoji, symbol}，把events.json裡的related_stocks(個股代號)
@@ -210,7 +210,7 @@ def generate():
     event_details = []
     for idx, e in enumerate(events_sorted):
         etype = e.get('type', '其他')
-        color = EVENT_TYPE_COLORS.get(etype, '#8b949e')
+        color = EVENT_TYPE_COLORS.get(etype, '#5C6459')
 
         impact_stocks = []
         for rs in e.get('related_stocks', []):
@@ -254,7 +254,7 @@ def generate():
     # Plotly 歷史折線圖
     line_traces = ""
     max_hist_len = 1
-    colors = ["#58a6ff","#ff4444","#22c55e","#eab308","#a855f7","#f97316","#06b6d4","#ec4899","#84cc16","#f43f5e","#8b5cf6","#14b8a6","#fb923c"]
+    colors = ["#A97323","#C6423D","#2F8F5B","#3E7CA6","#8B6BAF","#C97A2B","#3E8FA0","#C25C8A","#7BAF4E","#B8465E","#6E5A9C","#2E9E8E","#B8860B"]
     for i, s in enumerate(sectors[:13]):
         name = s['name']
         if name in history_data:
@@ -271,141 +271,9 @@ def generate():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>🇹🇼 台股族群每日監控</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;700;900&family=Noto+Sans+TC:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/style.css">
 <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
-<style>
-*{{box-sizing:border-box;margin:0;padding:0}}
-body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-serif;font-size:13px;overflow-x:hidden}}
-.nav{{background:#161b22;border-bottom:1px solid #30363d;padding:8px 14px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}}
-.nav h1{{font-size:14px;font-weight:600}}
-.nav-left{{display:flex;align-items:center;gap:14px}}
-.nav-tabs{{display:flex;gap:4px}}
-.nav-tab{{padding:4px 12px;border-radius:5px;font-size:11px;cursor:pointer;border:1px solid transparent;background:transparent;color:#8b949e}}
-.nav-tab:hover{{background:#21262d}}
-.nav-tab.active{{background:#58a6ff22;border-color:#58a6ff66;color:#58a6ff}}
-.nav .meta{{display:flex;align-items:center;gap:8px;font-size:11px;color:#8b949e}}
-.badge{{padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600}}
-.btn-sm{{background:#21262d;border:1px solid #30363d;color:#8b949e;padding:3px 10px;border-radius:4px;font-size:11px;cursor:pointer}}
-.btn-sm:hover{{background:#30363d;color:#e6edf3}}
-.main{{display:grid;grid-template-columns:240px 1fr;height:calc(100vh - 38px);overflow:hidden}}
-/* 事件頁面 */
-.events-page{{height:calc(100vh - 38px);overflow:hidden}}
-.ev-wrap{{display:grid;grid-template-columns:320px 1fr;height:100%}}
-.ev-timeline-panel{{border-right:1px solid #30363d;display:flex;flex-direction:column;overflow:hidden}}
-.ev-filter-chips{{display:flex;gap:4px;flex-wrap:wrap;padding:10px;border-bottom:1px solid #21262d;flex-shrink:0}}
-.ev-chip{{padding:3px 9px;border-radius:12px;font-size:10px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#8b949e}}
-.ev-chip.active{{background:#58a6ff22;border-color:#58a6ff66;color:#58a6ff}}
-.ev-timeline{{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px}}
-.ev-card{{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:9px 10px;cursor:pointer;transition:border-color .15s}}
-.ev-card:hover{{border-color:#58a6ff66}}
-.ev-card.active{{border-color:#58a6ff;background:#161b22}}
-.ev-card-date{{font-size:9px;color:#8b949e;margin-bottom:4px}}
-.ev-card-title{{font-size:12px;font-weight:500;margin-bottom:6px;line-height:1.4}}
-.ev-type-tag{{display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:600}}
-.ev-detail-panel{{padding:20px;overflow-y:auto}}
-.ev-detail-empty{{color:#8b949e;font-size:13px;text-align:center;padding-top:60px}}
-.ev-empty-msg{{color:#8b949e;font-size:13px;text-align:center;padding-top:60px}}
-.ev-detail-title{{font-size:18px;font-weight:700;margin-bottom:6px}}
-.ev-detail-meta{{display:flex;align-items:center;gap:8px;margin-bottom:16px}}
-.ev-detail-date{{font-size:11px;color:#8b949e}}
-.ev-detail-summary{{font-size:12px;color:#8b949e;line-height:1.6;padding:10px 12px;background:#161b22;border-radius:8px;border-left:3px solid #58a6ff;margin-bottom:20px}}
-.impact-table-title{{font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}}
-.impact-table{{width:100%;border-collapse:collapse;font-size:12px}}
-.impact-table th{{text-align:left;padding:7px 10px;color:#8b949e;font-weight:500;font-size:10px;border-bottom:1px solid #30363d}}
-.impact-table td{{padding:7px 10px;border-bottom:1px solid #21262d}}
-.impact-table tr:hover td{{background:#161b22}}
-.impact-relation{{font-size:10px;padding:2px 7px;border-radius:4px;background:#21262d;color:#8b949e}}
-.impact-relation.self{{background:#58a6ff22;color:#58a6ff}}
-.impact-reason{{color:#8b949e;font-size:11px;line-height:1.5;max-width:260px}}
-.impact-link{{cursor:pointer;color:#c9d1d9}}
-.impact-link:hover{{color:#58a6ff;text-decoration:underline}}
-.impact-dir-positive{{color:#ff4444;font-weight:600;font-size:12px}}
-.impact-dir-negative{{color:#22c55e;font-weight:600;font-size:12px}}
-.impact-dir-neutral{{color:#8b949e;font-weight:600;font-size:12px}}
-/* LEFT */
-.left{{border-right:1px solid #30363d;padding:8px 6px;display:flex;flex-direction:column;gap:2px;overflow-y:auto}}
-.left-title{{font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:.05em;padding:0 4px;margin-bottom:4px;flex-shrink:0}}
-.rank-tabs{{display:flex;gap:3px;padding:0 2px;margin-bottom:6px;flex-shrink:0;flex-wrap:wrap}}
-.rank-tab{{padding:3px 7px;border-radius:4px;font-size:10px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#8b949e;white-space:nowrap}}
-.rank-tab.active{{background:#58a6ff22;border-color:#58a6ff66;color:#58a6ff}}
-.rank-list{{display:none;flex-direction:column;gap:2px}}
-.rank-list.active{{display:flex}}
-.rank-section-label{{font-size:9px;color:#8b949e;text-transform:uppercase;letter-spacing:.05em;padding:6px 4px 2px;flex-shrink:0}}
-.rank-row{{display:flex;align-items:center;gap:4px;padding:5px 6px;border-radius:6px;cursor:pointer;transition:background .15s;flex-shrink:0}}
-.rank-row:hover{{background:#161b22}}
-.rank-name{{font-size:11px;font-weight:500;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}}
-.rank-sub{{font-size:9px;color:#8b949e;flex-shrink:0;white-space:nowrap;max-width:56px;overflow:hidden;text-overflow:ellipsis}}
-.rank-val{{font-size:10px;font-weight:700;flex-shrink:0;text-align:right;white-space:nowrap}}
-.rank-val2{{font-size:9px;flex-shrink:0;text-align:right;white-space:nowrap;width:44px}}
-.rank-empty{{font-size:11px;color:#8b949e;text-align:center;padding:20px 8px}}
-.sector-row{{display:flex;align-items:center;gap:5px;padding:5px 6px;border-radius:6px;cursor:pointer;transition:all .15s;border:1px solid transparent;flex-shrink:0}}
-.sector-row:hover{{background:#161b22}}
-.sector-row.active{{background:#161b22;border-color:#58a6ff55}}
-.sector-row .rank{{font-size:10px;color:#8b949e;width:14px;text-align:right;flex-shrink:0}}
-.sector-row .name{{font-size:11px;font-weight:500;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.sector-row .val{{font-size:11px;font-weight:700;width:50px;text-align:right;flex-shrink:0}}
-.sector-row .bar-wrap{{width:30px;flex-shrink:0}}
-.bar-bg{{background:#21262d;border-radius:2px;height:3px}}
-.bar-fill{{height:100%;border-radius:2px}}
-.divider{{border:none;border-top:1px solid #21262d;margin:3px 0;flex-shrink:0}}
-/* RIGHT */
-.right{{display:flex;flex-direction:column;overflow:hidden}}
-/* HEADER 區 */
-.right-header{{padding:8px 14px 6px;border-bottom:1px solid #21262d;flex-shrink:0}}
-.idx-tabs{{display:flex;align-items:center;gap:6px;margin-bottom:6px}}
-.idx-btn{{padding:3px 10px;border-radius:4px;font-size:11px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#8b949e}}
-.idx-btn.active{{background:#58a6ff22;border-color:#58a6ff66;color:#58a6ff}}
-.idx-val{{display:flex;align-items:baseline;gap:8px}}
-.big{{font-size:20px;font-weight:700}}
-.ohlc{{display:flex;gap:10px;font-size:10px;color:#8b949e;margin-top:2px}}
-/* 族群模式 header */
-.sector-header{{display:none}}
-.s-back{{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}}
-.s-title-row{{display:flex;align-items:baseline;gap:8px;margin-bottom:4px}}
-.s-summary{{font-size:11px;color:#8b949e;line-height:1.5;padding:5px 8px;background:#0d1117;border-radius:6px;border-left:2px solid #58a6ff;margin-bottom:6px}}
-.stock-tabs{{display:flex;gap:4px;overflow-x:auto;padding-bottom:2px}}
-.stock-tabs::-webkit-scrollbar{{height:3px}}
-.stock-tabs::-webkit-scrollbar-track{{background:#21262d}}
-.stock-tabs::-webkit-scrollbar-thumb{{background:#30363d;border-radius:2px}}
-.stock-tab{{padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#8b949e;white-space:nowrap;flex-shrink:0}}
-.stock-tab.active-up{{background:#ff444422;border-color:#ff444466;color:#ff4444}}
-.stock-tab.active-down{{background:#22c55e22;border-color:#22c55e66;color:#22c55e}}
-/* 個股資訊面板 */
-.stock-info-panel{{display:none;padding:6px 14px;border-bottom:1px solid #21262d;flex-shrink:0}}
-.info-grid{{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:6px}}
-.info-card{{background:#0d1117;border:1px solid #30363d;border-radius:6px;padding:5px 8px;text-align:center}}
-.ic-label{{font-size:9px;color:#8b949e}}
-.ic-val{{font-size:12px;font-weight:600;margin-top:1px}}
-.suggest-box{{display:grid;grid-template-columns:repeat(4,1fr);gap:0;background:#0d1117;border:1px solid #30363d;border-radius:6px;overflow:hidden}}
-.suggest-item{{padding:6px 8px;text-align:center;border-right:1px solid #21262d}}
-.suggest-item:last-child{{border-right:none}}
-.sl{{font-size:9px;color:#8b949e;margin-bottom:2px}}
-.sv{{font-size:13px;font-weight:700}}
-.st{{font-size:9px;color:#8b949e;margin-top:1px}}
-/* 週期按鈕 */
-.period-row{{padding:4px 14px;display:flex;align-items:center;gap:3px;border-bottom:1px solid #21262d;flex-shrink:0}}
-.period-btn{{padding:2px 6px;border-radius:3px;font-size:10px;cursor:pointer;border:none;background:transparent;color:#8b949e}}
-.period-btn.active{{background:#58a6ff22;color:#58a6ff}}
-.ind-row{{display:flex;gap:6px;font-size:9px;color:#8b949e;margin-left:auto;flex-wrap:wrap}}
-.dot{{width:8px;height:3px;border-radius:2px;display:inline-block;vertical-align:middle;margin-right:2px}}
-/* 圖表區 */
-.chart-main{{flex:1;padding:4px 14px 0;min-height:0;display:flex;flex-direction:column}}
-.kline-info-bar{{display:flex;gap:10px;flex-wrap:wrap;font-size:10px;color:#8b949e;padding:2px 0 4px;flex-shrink:0}}
-.kline-info-bar b{{color:#e6edf3;font-weight:600}}
-#mainChart .hoverlayer .hovertext{{display:none}}
-/* 歷史趨勢區（大盤模式） */
-.history-chart{{padding:4px 14px;flex:1;min-height:0;display:none}}
-/* 底部快覽 */
-.idx-footer{{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid #30363d;flex-shrink:0}}
-.idx-footer-card{{padding:6px 10px;text-align:center;border-right:1px solid #21262d}}
-.idx-footer-card:last-child{{border-right:none}}
-.f-name{{font-size:9px;color:#8b949e}}
-.f-val{{font-size:12px;font-weight:600}}
-.f-chg{{font-size:9px}}
-/* Scrollbar */
-.left::-webkit-scrollbar{{width:3px}}
-.left::-webkit-scrollbar-track{{background:transparent}}
-.left::-webkit-scrollbar-thumb{{background:#30363d;border-radius:2px}}
-</style>
 </head>
 <body>
 
@@ -419,7 +287,7 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
   </div>
   <div class="meta">
     <span>最後更新：{updated_at}</span>
-    <span style="font-size:9px;color:#8b949e">（{delay_note}）</span>
+    <span style="font-size:9px;color:var(--ink-muted)">（{delay_note}）</span>
     <span class="badge" style="background:{sentiment['color']}22;color:{sentiment['color']};border:1px solid {sentiment['color']}44">{sentiment['label']}</span>
     <button class="btn-sm" onclick="location.href='/api/refresh?redirect=1'">🔄 立即更新</button>
   </div>
@@ -452,8 +320,8 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
       </div>
       <div class="idx-val">
         <span class="big" id="idx-price">-</span>
-        <span id="idx-chg" style="font-size:12px;font-weight:600;color:#8b949e">載入中...</span>
-        <span style="font-size:10px;color:#8b949e">{updated_at}</span>
+        <span id="idx-chg" style="font-size:12px;font-weight:600;color:var(--ink-muted)">載入中...</span>
+        <span style="font-size:10px;color:var(--ink-muted)">{updated_at}</span>
       </div>
       <div class="ohlc" id="idx-ohlc">
         <span>開 -</span><span>高 -</span><span>低 -</span><span>量 -</span>
@@ -487,22 +355,22 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
       <div class="suggest-box">
         <div class="suggest-item">
           <div class="sl">📌 建議進場</div>
-          <div class="sv" style="color:#ff4444" id="s-entry">-</div>
+          <div class="sv" style="color:var(--up)" id="s-entry">-</div>
           <div class="st" id="s-entry-note">-</div>
         </div>
         <div class="suggest-item">
           <div class="sl">🛑 停損價位</div>
-          <div class="sv" style="color:#22c55e" id="s-stop">-</div>
+          <div class="sv" style="color:var(--down)" id="s-stop">-</div>
           <div class="st" id="s-stop-note">-</div>
         </div>
         <div class="suggest-item">
           <div class="sl">🎯 目標價位</div>
-          <div class="sv" style="color:#58a6ff" id="s-target">-</div>
+          <div class="sv" style="color:var(--accent)" id="s-target">-</div>
           <div class="st" id="s-target-note">-</div>
         </div>
         <div class="suggest-item">
           <div class="sl">💡 操作建議</div>
-          <div class="sv" style="font-size:11px;color:#eab308" id="s-action">-</div>
+          <div class="sv" style="font-size:11px;color:var(--neutral)" id="s-action">-</div>
           <div class="st" id="s-action-note">-</div>
         </div>
       </div>
@@ -513,12 +381,12 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
       <button class="period-btn active" onclick="setPeriod(this)">日</button>
       <button class="period-btn" onclick="setPeriod(this)">週</button>
       <button class="period-btn" onclick="setPeriod(this)">月</button>
-      <div style="width:1px;height:14px;background:#30363d;margin:0 4px"></div>
+      <div style="width:1px;height:14px;background:var(--border);margin:0 4px"></div>
       <div class="ind-row">
-        <span><span class="dot" style="background:#f97316"></span>MA5</span>
-        <span><span class="dot" style="background:#58a6ff"></span>MA20</span>
-        <span><span class="dot" style="background:#a855f7"></span>MA60</span>
-        <span><span class="dot" style="background:#8b949e;opacity:.5"></span>布林帶</span>
+        <span><span class="dot" style="background:var(--fast)"></span>MA5</span>
+        <span><span class="dot" style="background:var(--slow)"></span>MA20</span>
+        <span><span class="dot" style="background:var(--ma60)"></span>MA60</span>
+        <span><span class="dot" style="background:var(--boll);opacity:.5"></span>布林帶</span>
       </div>
       <button class="btn-sm" id="history-toggle-btn" onclick="toggleHistoryView()" style="margin-left:8px">📈 族群趨勢</button>
     </div>
@@ -531,13 +399,13 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
         <span>高 <b id="ki-high">-</b></span>
         <span>低 <b id="ki-low">-</b></span>
         <span>收 <b id="ki-close">-</b></span>
-        <span style="color:#f97316">MA5 <b id="ki-ma5">-</b></span>
-        <span style="color:#58a6ff">MA20 <b id="ki-ma20">-</b></span>
-        <span style="color:#a855f7">MA60 <b id="ki-ma60">-</b></span>
-        <span style="color:#8b949e">布林上 <b id="ki-bollu">-</b></span>
-        <span style="color:#8b949e">布林下 <b id="ki-bolld">-</b></span>
-        <span style="color:#f97316">K <b id="ki-k">-</b></span>
-        <span style="color:#58a6ff">D <b id="ki-d">-</b></span>
+        <span style="color:var(--fast)">MA5 <b id="ki-ma5">-</b></span>
+        <span style="color:var(--slow)">MA20 <b id="ki-ma20">-</b></span>
+        <span style="color:var(--ma60)">MA60 <b id="ki-ma60">-</b></span>
+        <span style="color:var(--boll)">布林上 <b id="ki-bollu">-</b></span>
+        <span style="color:var(--boll)">布林下 <b id="ki-bolld">-</b></span>
+        <span style="color:var(--fast)">K <b id="ki-k">-</b></span>
+        <span style="color:var(--slow)">D <b id="ki-d">-</b></span>
         <span>量 <b id="ki-vol">-</b></span>
       </div>
       <div id="mainChart" style="width:100%;flex:1;min-height:0"></div>
@@ -550,7 +418,7 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
 
     <!-- 底部快覽 -->
     <div class="idx-footer">
-      <div class="idx-footer-card" style="border-top:2px solid #58a6ff">
+      <div class="idx-footer-card" style="border-top:2px solid var(--accent)">
         <div class="f-name">加權指數</div>
         <div class="f-val" id="f-twii-val">-</div>
         <div class="f-chg" id="f-twii-chg">-</div>
@@ -595,12 +463,24 @@ body{{background:#0d1117;color:#e6edf3;font-family:system-ui,-apple-system,sans-
 const ALL_STOCKS = {all_stocks_json};
 const EVENTS = {events_json};
 const PLOT_CONFIG = {{responsive:true,displayModeBar:false,scrollZoom:true}};
-const DARK_LAYOUT = {{
-  paper_bgcolor:'#0d1117',plot_bgcolor:'#0d1117',
-  font:{{color:'#8b949e',size:10}},
+
+// 色票：讀取 static/style.css 裡 :root 定義的 CSS custom properties，
+// 讓 Plotly（JS 端無法直接用 var()）與 CSS 共用同一套設計 token，
+// 淺色/深色模式（prefers-color-scheme）會自動反映到圖表上。
+const CV = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const COLORS = {{
+  up:CV('--up'), down:CV('--down'), accent:CV('--accent'),
+  fast:CV('--fast'), slow:CV('--slow'), ma60:CV('--ma60'), boll:CV('--boll'),
+  surface:CV('--surface'), grid:CV('--grid'), border:CV('--border'),
+  ink:CV('--ink'), inkMuted:CV('--ink-muted')
+}};
+
+const CHART_LAYOUT = {{
+  paper_bgcolor:COLORS.surface,plot_bgcolor:COLORS.surface,
+  font:{{color:COLORS.inkMuted,size:10}},
   margin:{{l:40,r:8,t:4,b:20}},
-  xaxis:{{gridcolor:'#21262d',showgrid:true,zeroline:false}},
-  yaxis:{{gridcolor:'#21262d',showgrid:true,zeroline:false,side:'right'}}
+  xaxis:{{gridcolor:COLORS.grid,showgrid:true,zeroline:false}},
+  yaxis:{{gridcolor:COLORS.grid,showgrid:true,zeroline:false,side:'right'}}
 }};
 
 // ---- 真實K線資料（透過 /api/kline/<symbol> 取得，取代模擬資料）----
@@ -614,7 +494,7 @@ async function fetchKline(symbol) {{
     if(!data.dates || data.dates.length === 0) return null;
     const result = {{
       dates: data.dates, o: data.open, h: data.high, l: data.low, c: data.close, v: data.volume,
-      colors: data.close.map((c,i)=> c >= data.open[i] ? '#ff4444' : '#22c55e')
+      colors: data.close.map((c,i)=> c >= data.open[i] ? COLORS.up : COLORS.down)
     }};
     klineCache[symbol] = result;
     return result;
@@ -690,7 +570,7 @@ function aggregateData(base, period) {{
   order.forEach(key=>{{
     const g=groups[key];
     dates.push(g.firstDate); o.push(g.o); h.push(g.h); l.push(g.l); c.push(g.c); v.push(g.v);
-    colors.push(g.c>=g.o?'#ff4444':'#22c55e');
+    colors.push(g.c>=g.o?COLORS.up:COLORS.down);
   }});
   return {{dates,o,h,l,c,v,colors}};
 }}
@@ -726,26 +606,26 @@ function renderKline() {{
   const maxIdx = d.dates.length-1;
   const tickvals = d.dates.filter((_,i)=>i%10===0);
   const ticktext = tickvals.map(x=>x.slice(5));
-  const spike = {{showspikes:true,spikemode:'across',spikesnap:'cursor',spikecolor:'#58a6ff',spikethickness:1,spikedash:'dash'}};
+  const spike = {{showspikes:true,spikemode:'across',spikesnap:'cursor',spikecolor:COLORS.accent,spikethickness:1,spikedash:'dash'}};
 
   const hasVolume = d.v.some(v => v > 0);
 
   const traces = [
     {{type:'candlestick',x:d.dates,open:d.o,high:d.h,low:d.l,close:d.c,xaxis:'x',yaxis:'y',
-      increasing:{{line:{{color:'#ff4444'}},fillcolor:'#ff4444'}},
-      decreasing:{{line:{{color:'#22c55e'}},fillcolor:'#22c55e'}},name:'K線'}},
-    {{x:d.dates,y:ma5,type:'scatter',mode:'lines',line:{{color:'#f97316',width:1}},name:'MA5',xaxis:'x',yaxis:'y'}},
-    {{x:d.dates,y:ma20,type:'scatter',mode:'lines',line:{{color:'#58a6ff',width:1}},name:'MA20',xaxis:'x',yaxis:'y'}},
-    {{x:d.dates,y:ma60,type:'scatter',mode:'lines',line:{{color:'#a855f7',width:1}},name:'MA60',xaxis:'x',yaxis:'y'}},
-    {{x:d.dates,y:boll.upper,type:'scatter',mode:'lines',line:{{color:'#8b949e',width:0.8,dash:'dot'}},name:'布林上',showlegend:false,xaxis:'x',yaxis:'y'}},
-    {{x:d.dates,y:boll.lower,type:'scatter',mode:'lines',line:{{color:'#8b949e',width:0.8,dash:'dot'}},name:'布林下',
-      fill:'tonexty',fillcolor:'rgba(139,148,158,0.04)',showlegend:false,xaxis:'x',yaxis:'y'}},
-    {{x:d.dates,y:kd.K,type:'scatter',mode:'lines',line:{{color:'#f97316',width:1.2}},name:'K',xaxis:'x',yaxis:'y2'}},
-    {{x:d.dates,y:kd.D,type:'scatter',mode:'lines',line:{{color:'#58a6ff',width:1.2}},name:'D',xaxis:'x',yaxis:'y2'}},
+      increasing:{{line:{{color:COLORS.up}},fillcolor:COLORS.up}},
+      decreasing:{{line:{{color:COLORS.down}},fillcolor:COLORS.down}},name:'K線'}},
+    {{x:d.dates,y:ma5,type:'scatter',mode:'lines',line:{{color:COLORS.fast,width:1}},name:'MA5',xaxis:'x',yaxis:'y'}},
+    {{x:d.dates,y:ma20,type:'scatter',mode:'lines',line:{{color:COLORS.slow,width:1}},name:'MA20',xaxis:'x',yaxis:'y'}},
+    {{x:d.dates,y:ma60,type:'scatter',mode:'lines',line:{{color:COLORS.ma60,width:1}},name:'MA60',xaxis:'x',yaxis:'y'}},
+    {{x:d.dates,y:boll.upper,type:'scatter',mode:'lines',line:{{color:COLORS.boll,width:0.8,dash:'dot'}},name:'布林上',showlegend:false,xaxis:'x',yaxis:'y'}},
+    {{x:d.dates,y:boll.lower,type:'scatter',mode:'lines',line:{{color:COLORS.boll,width:0.8,dash:'dot'}},name:'布林下',
+      fill:'tonexty',fillcolor:'rgba(138,145,127,0.08)',showlegend:false,xaxis:'x',yaxis:'y'}},
+    {{x:d.dates,y:kd.K,type:'scatter',mode:'lines',line:{{color:COLORS.fast,width:1.2}},name:'K',xaxis:'x',yaxis:'y2'}},
+    {{x:d.dates,y:kd.D,type:'scatter',mode:'lines',line:{{color:COLORS.slow,width:1.2}},name:'D',xaxis:'x',yaxis:'y2'}},
     {{x:[d.dates[0],d.dates[maxIdx]],y:[80,80],type:'scatter',mode:'lines',
-      line:{{color:'#30363d',width:0.8,dash:'dot'}},showlegend:false,hoverinfo:'skip',xaxis:'x',yaxis:'y2'}},
+      line:{{color:COLORS.border,width:0.8,dash:'dot'}},showlegend:false,hoverinfo:'skip',xaxis:'x',yaxis:'y2'}},
     {{x:[d.dates[0],d.dates[maxIdx]],y:[20,20],type:'scatter',mode:'lines',
-      line:{{color:'#30363d',width:0.8,dash:'dot'}},showlegend:false,hoverinfo:'skip',xaxis:'x',yaxis:'y2'}},
+      line:{{color:COLORS.border,width:0.8,dash:'dot'}},showlegend:false,hoverinfo:'skip',xaxis:'x',yaxis:'y2'}},
   ];
   if(hasVolume) {{
     traces.push({{x:d.dates,y:d.v,type:'bar',marker:{{color:d.colors,opacity:0.8}},name:'成交量',xaxis:'x',yaxis:'y3'}});
@@ -753,24 +633,24 @@ function renderKline() {{
 
   const annotations = hasVolume ? [] : [{{
     text:'指數無成交量資料', xref:'paper', yref:'paper', x:0.5, y:0.075,
-    showarrow:false, font:{{color:'#8b949e',size:10}}
+    showarrow:false, font:{{color:COLORS.inkMuted,size:10}}
   }}];
 
   Plotly.newPlot('mainChart', traces, {{
-    paper_bgcolor:'#0d1117',plot_bgcolor:'#0d1117',
-    font:{{color:'#8b949e',size:10}},
+    paper_bgcolor:COLORS.surface,plot_bgcolor:COLORS.surface,
+    font:{{color:COLORS.inkMuted,size:10}},
     margin:{{l:50,r:8,t:4,b:20}},
     showlegend:false,
     dragmode:'pan',
     hovermode:'x unified',
     annotations,
-    xaxis:{{gridcolor:'#21262d',showgrid:true,zeroline:false,rangeslider:{{visible:false}},type:'category',
+    xaxis:{{gridcolor:COLORS.grid,showgrid:true,zeroline:false,rangeslider:{{visible:false}},type:'category',
       range:[0,maxIdx],tickmode:'array',tickvals,ticktext,...spike}},
-    yaxis:{{gridcolor:'#21262d',showgrid:true,zeroline:false,side:'right',fixedrange:true,
+    yaxis:{{gridcolor:COLORS.grid,showgrid:true,zeroline:false,side:'right',fixedrange:true,
       domain:[0.35,1.0],showspikes:true}},
-    yaxis2:{{gridcolor:'#21262d',showgrid:true,zeroline:false,side:'right',fixedrange:true,
+    yaxis2:{{gridcolor:COLORS.grid,showgrid:true,zeroline:false,side:'right',fixedrange:true,
       domain:[0.18,0.32],range:[0,100],dtick:40,showspikes:true}},
-    yaxis3:{{gridcolor:'#21262d',showgrid:true,zeroline:false,side:'right',fixedrange:true,
+    yaxis3:{{gridcolor:COLORS.grid,showgrid:true,zeroline:false,side:'right',fixedrange:true,
       domain:[0,0.15],showticklabels:false,showspikes:true}}
   }}, PLOT_CONFIG);
 
@@ -848,14 +728,14 @@ function renderHistory() {{
   const traces=[{line_traces}];
   if(traces.length===0) return;
   Plotly.newPlot('historyChart',traces,{{
-    ...DARK_LAYOUT,
+    ...CHART_LAYOUT,
     margin:{{l:40,r:8,t:4,b:30}},
     showlegend:true,
     dragmode:'pan',
     hovermode:'x',
-    legend:{{bgcolor:'#161b22',bordercolor:'#30363d',borderwidth:1,font:{{size:9}}}},
-    xaxis:{{...DARK_LAYOUT.xaxis,type:'category',range:[0,HISTORY_MAX_IDX]}},
-    yaxis:{{...DARK_LAYOUT.yaxis,title:'強勢評分',fixedrange:true}}
+    legend:{{bgcolor:COLORS.surface,bordercolor:COLORS.border,borderwidth:1,font:{{size:9}}}},
+    xaxis:{{...CHART_LAYOUT.xaxis,type:'category',range:[0,HISTORY_MAX_IDX]}},
+    yaxis:{{...CHART_LAYOUT.yaxis,title:'強勢評分',fixedrange:true}}
   }},PLOT_CONFIG);
   attachZoomBound('historyChart',HISTORY_MAX_IDX);
   attachShiftWheelPan('historyChart');
@@ -871,7 +751,7 @@ function updateIndexHeader(kline) {{
   const chg=prev?((price-prev)/prev*100):0;
   const diff=price-prev;
   const up=chg>=0;
-  const color=up?'#ff4444':'#22c55e';
+  const color=up?COLORS.up:COLORS.down;
   const arrow=up?'▲':'▼';
   document.getElementById('idx-price').textContent=fmtIdxNum(price);
   const chgEl=document.getElementById('idx-chg');
@@ -927,9 +807,9 @@ function jumpToStock(sym) {{
 
   document.getElementById('s-title').textContent=s.sectorEmoji+' '+s.name;
   document.getElementById('s-avg').textContent=s.chg;
-  document.getElementById('s-avg').style.color=s.up==='true'?'#ff4444':'#22c55e';
+  document.getElementById('s-avg').style.color=s.up==='true'?COLORS.up:COLORS.down;
   document.getElementById('s-rating').textContent=s.sectorName;
-  document.getElementById('s-rating').style.color='#8b949e';
+  document.getElementById('s-rating').style.color=COLORS.inkMuted;
   document.getElementById('s-summary').textContent=`${{s.name}}（${{s.sectorName}}）現價 ${{s.price}}，${{s.instSignal}}。`;
 
   const tabsEl=document.getElementById('stock-tabs');
@@ -1028,7 +908,7 @@ function showEventDetail(idx) {{
     <div class="ev-detail-title">${{ev.title}}</div>
     <div class="ev-detail-meta">
       <span class="ev-detail-date">${{ev.date}}</span>
-      <span class="ev-type-tag" style="background:#58a6ff22;color:#58a6ff;border:1px solid #58a6ff44">${{ev.type}}</span>
+      <span class="ev-type-tag" style="background:${{COLORS.accent}}22;color:${{COLORS.accent}};border:1px solid ${{COLORS.accent}}44">${{ev.type}}</span>
     </div>
     <div class="ev-detail-summary">${{ev.summary}}</div>
     ${{impactSection}}
@@ -1049,9 +929,9 @@ function selectSector(el, name, emoji, rating, summary, isUp, stocks) {{
   const avgEl=el.querySelector('.val');
   document.getElementById('s-title').textContent=emoji+' '+name;
   document.getElementById('s-avg').textContent=avgEl.textContent;
-  document.getElementById('s-avg').style.color=isUp?'#ff4444':'#22c55e';
+  document.getElementById('s-avg').style.color=isUp?COLORS.up:COLORS.down;
   document.getElementById('s-rating').textContent=rating;
-  document.getElementById('s-rating').style.color=isUp?'#ff4444':'#22c55e';
+  document.getElementById('s-rating').style.color=isUp?COLORS.up:COLORS.down;
   document.getElementById('s-summary').textContent=summary;
 
   const tabsEl=document.getElementById('stock-tabs');
@@ -1074,7 +954,7 @@ async function selectStock(s, btn, isUp) {{
   if(btn) btn.classList.add(isUp?'active-up':'active-down');
   document.getElementById('s-price').textContent=s.price;
   const chgEl=document.getElementById('s-chg');
-  chgEl.textContent=s.chg; chgEl.style.color=isUp?'#ff4444':'#22c55e';
+  chgEl.textContent=s.chg; chgEl.style.color=isUp?COLORS.up:COLORS.down;
   document.getElementById('s-vol').textContent=s.vol;
   document.getElementById('s-vr').textContent=s.vr+'x';
   document.getElementById('s-entry').textContent=s.entry;
@@ -1087,10 +967,10 @@ async function selectStock(s, btn, isUp) {{
   document.getElementById('s-action-note').textContent=s.actionNote;
   const foreignEl=document.getElementById('s-foreign');
   foreignEl.textContent=s.foreignFmt||'-';
-  foreignEl.style.color=s.foreignUp==='true'?'#ff4444':'#22c55e';
+  foreignEl.style.color=s.foreignUp==='true'?COLORS.up:COLORS.down;
   const trustEl=document.getElementById('s-trust');
   trustEl.textContent=s.trustFmt||'-';
-  trustEl.style.color=s.trustUp==='true'?'#ff4444':'#22c55e';
+  trustEl.style.color=s.trustUp==='true'?COLORS.up:COLORS.down;
 
   const kline=await fetchKline(s.sym);
   baseKData=kline||EMPTY_KLINE;
@@ -1160,7 +1040,7 @@ function toggleHistoryView() {{
     const price=twoii.c[n-1];
     const prev=n>1?twoii.c[n-2]:price;
     const chg=prev?((price-prev)/prev*100):0;
-    const color=chg>=0?'#ff4444':'#22c55e';
+    const color=chg>=0?COLORS.up:COLORS.down;
     const arrow=chg>=0?'▲':'▼';
     document.getElementById('f-twoii-val').textContent=fmtIdxNum(price);
     document.getElementById('f-twoii-chg').textContent=`${{arrow}} ${{chg.toFixed(2)}}%`;
