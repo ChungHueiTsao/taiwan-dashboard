@@ -15,20 +15,27 @@
   const fmtNum = v => (v === null || v === undefined) ? '-' : (+v).toLocaleString('zh-TW', { maximumFractionDigits: 2 });
 
   // ============================================================
-  // 導覽：首頁／個股／產業排行／自選股／事件
+  // 導覽：首頁（含產業排行 Tab）／個股／自選股／事件
   // ============================================================
-  const PAGES = ['home', 'stock', 'industry', 'watch', 'events'];
+  const PAGES = ['home', 'stock', 'watch', 'events'];
   function showPage(page) {
     PAGES.forEach(p => {
       document.getElementById('page-' + p).classList.toggle('active', p === page);
       document.getElementById('nav-tab-' + p).classList.toggle('active', p === page);
     });
     if (page === 'home') renderHome();
-    if (page === 'industry') renderIndustryPage();
     if (page === 'watch') renderWatchPage();
     if (page === 'events') renderEventsPage();
   }
   window.showPage = showPage;
+
+  function switchHomeTab(btn, tab) {
+    document.querySelectorAll('.home-tab').forEach(b => b.classList.toggle('active', b === btn));
+    document.getElementById('home-tab-hot').style.display = tab === 'hot' ? 'block' : 'none';
+    document.getElementById('home-tab-industry').style.display = tab === 'industry' ? 'block' : 'none';
+    if (tab === 'industry') renderIndustryTab();
+  }
+  window.switchHomeTab = switchHomeTab;
 
   // ============================================================
   // 搜尋
@@ -62,16 +69,19 @@
   // 首頁
   // ============================================================
   function renderHome() {
-    const upCount = DATA.upCount, downCount = DATA.downCount;
+    const stockList = Object.values(DATA.allStocks);
+    const upCount = stockList.filter(s => s.changePctRaw > 0).length;
+    const downCount = stockList.filter(s => s.changePctRaw < 0).length;
+    const flatCount = stockList.length - upCount - downCount;
     const inst = DATA.latestInstitutionalTotal;
     const statsEl = document.getElementById('home-stats');
     statsEl.innerHTML = '';
     const cards = [
-      { name: '上漲 / 下跌家數', num: `<span class="up">${upCount}</span> / <span class="down">${downCount}</span>`, chg: `平盤 ${DATA.flatCount} 檔` },
+      { name: '追蹤個股上漲 / 下跌家數', num: `<span class="up">${upCount}</span> / <span class="down">${downCount}</span>`, chg: `平盤 ${flatCount} 檔（共追蹤 ${stockList.length} 檔）` },
       { name: '三大法人合計買賣超', num: inst ? fmtSignedLots(inst.foreign + inst.trust + inst.dealer) : '-',
         chg: inst ? `外資 ${fmtSignedLots(inst.foreign)}　投信 ${fmtSignedLots(inst.trust)}` : `尚無資料`,
         cls: inst && (inst.foreign + inst.trust + inst.dealer) >= 0 ? 'up' : 'down' },
-      { name: '今日最強族群', num: DATA.topSector, chg: '點擊「產業排行」看完整排行' },
+      { name: '今日最強族群', num: DATA.topSector, chg: '切換「產業排行」看完整排行' },
       { name: '市場情緒', num: DATA.sentiment.label, chg: DATA.updatedAt },
     ];
     cards.forEach(c => {
@@ -82,8 +92,6 @@
     const hb = document.getElementById('home-hot-stocks');
     hb.innerHTML = '';
     hot.forEach(([sym, s]) => hb.insertAdjacentHTML('beforeend', stockRowHtml(sym, s)));
-
-    renderHeatmap('home-heatmap', DATA.sectors.slice(0, 6));
 
     const evEl = document.getElementById('home-events');
     evEl.innerHTML = '';
@@ -110,39 +118,14 @@
   }
 
   // ============================================================
-  // 熱力圖（首頁預覽／產業排行頁共用）
+  // 產業排行（首頁「熱門個股」卡片內的 Tab）
   // ============================================================
-  function heatColor(pct) {
-    const t = Math.max(-4, Math.min(4, pct)) / 4;
-    if (t >= 0) return `rgba(198,66,61,${0.35 + t * 0.55})`;
-    return `rgba(47,143,91,${0.35 + (-t) * 0.55})`;
-  }
-  function renderHeatmap(containerId, sectors) {
-    const el = document.getElementById(containerId);
-    el.innerHTML = '';
-    const maxVol = Math.max(1, ...sectors.map(s => s.totalVolume));
-    sectors.forEach(s => {
-      const size = 78 + Math.sqrt(s.totalVolume / maxVol) * 46;
-      const tile = document.createElement('div');
-      tile.className = 'heat-tile';
-      tile.style.background = heatColor(s.avgChange);
-      tile.style.minHeight = size + 'px';
-      tile.innerHTML = `<div class="n">${s.emoji} ${s.name}</div><div class="p">${fmtPct(s.avgChange)}</div>`;
-      tile.onclick = () => { showPage('industry'); setTimeout(() => showIndustryDetail(s.name), 0); };
-      el.appendChild(tile);
-    });
-  }
-
-  // ============================================================
-  // 產業排行頁
-  // ============================================================
-  function renderIndustryPage() {
-    renderHeatmap('industry-heatmap', DATA.sectors);
-    const tb = document.getElementById('industry-table-body');
+  function renderIndustryTab() {
+    const tb = document.getElementById('home-industry-table-body');
     tb.innerHTML = '';
     DATA.sectors.slice().sort((a, b) => b.avgChange - a.avgChange).forEach(s => {
       const up = s.avgChange >= 0;
-      tb.insertAdjacentHTML('beforeend', `<tr class="hover-row" onclick="window.showIndustryDetail('${s.name}')">
+      tb.insertAdjacentHTML('beforeend', `<tr class="hover-row" data-sector="${s.name}" onclick="window.showIndustryDetail('${s.name}')">
         <td>${s.emoji} ${s.name}</td>
         <td class="mono ${up ? 'up' : 'down'}">${fmtPct(s.avgChange)}</td>
         <td class="mono">${s.score}</td>
@@ -150,38 +133,69 @@
         <td>${s.topStock}</td>
       </tr>`);
     });
-    let detail = document.getElementById('industry-detail');
-    if (!detail) {
-      detail = document.createElement('div');
-      detail.id = 'industry-detail';
-      detail.className = 'card padded';
-      detail.style.marginTop = '16px';
-      detail.style.display = 'none';
-      document.getElementById('page-industry').appendChild(detail);
-    }
+    document.getElementById('home-industry-detail').style.display = 'none';
+    document.querySelectorAll('#home-industry-table-body tr').forEach(r => r.classList.remove('active-row'));
   }
   function showIndustryDetail(sectorName) {
     const sector = DATA.sectors.find(s => s.name === sectorName);
     if (!sector) return;
-    const detail = document.getElementById('industry-detail');
+    const detail = document.getElementById('home-industry-detail');
     detail.style.display = 'block';
-    detail.innerHTML = `<div class="section-head" style="margin-bottom:10px"><h2 style="font-size:15px">${sector.emoji} ${sector.name} 成分股</h2></div>`;
-    const wrap = document.createElement('div');
-    wrap.style.display = 'flex'; wrap.style.flexWrap = 'wrap'; wrap.style.gap = '8px';
+    detail.innerHTML = `
+      <div class="section-head" style="margin-bottom:10px"><h2 style="font-size:15px">${sector.emoji} ${sector.name} 成分股</h2></div>
+      <div class="chip-row" id="industry-chip-row"></div>
+      <div class="industry-preview" id="industry-preview" style="display:none">
+        <div class="section-head" style="margin-bottom:8px">
+          <h2 style="font-size:14px" id="industry-preview-name">-</h2>
+          <button class="btn-sm active-up" id="industry-preview-btn">查看個股頁 →</button>
+        </div>
+        <div id="industry-preview-chart" style="height:220px"></div>
+      </div>`;
+    const chipRow = document.getElementById('industry-chip-row');
+    let firstSym = null;
     sector.stocks.forEach(sym => {
       const s = DATA.allStocks[sym];
       if (!s) return;
+      if (!firstSym) firstSym = sym;
       const chip = document.createElement('button');
-      chip.className = 'chip ' + (s.up === 'true' ? '' : '');
+      chip.className = 'chip';
       chip.textContent = `${s.name} ${s.chg}`;
       chip.style.color = s.up === 'true' ? COLORS.up : COLORS.down;
-      chip.onclick = () => openStock(sym);
-      wrap.appendChild(chip);
+      chip.onclick = () => previewIndustryStock(sym, chip);
+      chipRow.appendChild(chip);
     });
-    detail.appendChild(wrap);
-    detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    document.querySelectorAll('#home-industry-table-body tr').forEach(r => r.classList.toggle('active-row', r.dataset.sector === sectorName));
+    if (firstSym) previewIndustryStock(firstSym, chipRow.firstElementChild);
   }
   window.showIndustryDetail = showIndustryDetail;
+
+  async function previewIndustryStock(sym, chipEl) {
+    document.querySelectorAll('#industry-chip-row .chip').forEach(c => c.classList.remove('on'));
+    if (chipEl) chipEl.classList.add('on');
+    const s = DATA.allStocks[sym];
+    if (!s) return;
+    const panel = document.getElementById('industry-preview');
+    panel.style.display = 'block';
+    document.getElementById('industry-preview-name').textContent = `${s.name} ${s.code}　${s.chg}`;
+    document.getElementById('industry-preview-btn').onclick = () => openStock(sym);
+    const chartEl = document.getElementById('industry-preview-chart');
+    chartEl.innerHTML = '';
+    const k = await fetchKline(sym);
+    if (!k || !k.dates.length) { chartEl.innerHTML = '<div class="rank-empty">尚無K線資料</div>'; return; }
+    const n = k.dates.length, from = Math.max(0, n - 60);
+    const dates = k.dates.slice(from), o = k.o.slice(from), h = k.h.slice(from), l = k.l.slice(from), c = k.c.slice(from);
+    const tickvals = dates.filter((_, i) => i % 10 === 0);
+    Plotly.newPlot(chartEl, [{
+      type: 'candlestick', x: dates, open: o, high: h, low: l, close: c,
+      increasing: { line: { color: COLORS.up }, fillcolor: COLORS.up },
+      decreasing: { line: { color: COLORS.down }, fillcolor: COLORS.down }
+    }], {
+      paper_bgcolor: COLORS.surface, plot_bgcolor: COLORS.surface, font: { color: COLORS.inkMuted, size: 10 },
+      margin: { l: 44, r: 8, t: 4, b: 20 }, showlegend: false, dragmode: false,
+      xaxis: { gridcolor: COLORS.grid, showgrid: true, zeroline: false, rangeslider: { visible: false }, type: 'category', tickmode: 'array', tickvals, ticktext: tickvals.map(x => x.slice(5)) },
+      yaxis: { gridcolor: COLORS.grid, showgrid: true, zeroline: false, side: 'right' }
+    }, { responsive: true, displayModeBar: false });
+  }
 
   // ============================================================
   // 個股頁：搜尋/點擊進入，四個 Tab

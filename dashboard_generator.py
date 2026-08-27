@@ -12,7 +12,7 @@ def _load_json(path, default):
 
 
 def _load_history_scores():
-    """族群評分近20日歷史（首頁/產業排行頁的趨勢小圖用）"""
+    """族群評分近20日歷史（首頁趨勢小圖用）"""
     history_data = {}
     try:
         df = pd.read_csv('data/history.csv')
@@ -233,7 +233,6 @@ def generate():
     <div class="nav-tabs">
       <button class="nav-tab active" id="nav-tab-home" onclick="showPage('home')">首頁</button>
       <button class="nav-tab" id="nav-tab-stock" onclick="showPage('stock')">個股</button>
-      <button class="nav-tab" id="nav-tab-industry" onclick="showPage('industry')">產業排行</button>
       <button class="nav-tab" id="nav-tab-watch" onclick="showPage('watch')">自選股</button>
       <button class="nav-tab" id="nav-tab-events" onclick="showPage('events')">事件</button>
     </div>
@@ -256,14 +255,23 @@ def generate():
   <div class="grid home-grid">
     <div class="side-stack">
       <div class="card">
-        <div class="section-head padded"><h2>熱門個股</h2><span class="more" onclick="showPage('industry')">看產業排行 →</span></div>
-        <table><thead><tr><th>股票</th><th>成交價</th><th>漲跌幅</th><th>成交量(張)</th><th>外資5日</th></tr></thead>
-          <tbody id="home-hot-stocks"></tbody>
-        </table>
-      </div>
-      <div class="card">
-        <div class="section-head padded"><h2>產業強弱一覽</h2><span class="more" onclick="showPage('industry')">看完整產業排行 →</span></div>
-        <div class="heatmap" id="home-heatmap"></div>
+        <div class="section-head padded" style="margin-bottom:0">
+          <div class="home-tab-switch">
+            <button class="home-tab active" onclick="switchHomeTab(this,'hot')">熱門個股</button>
+            <button class="home-tab" onclick="switchHomeTab(this,'industry')">產業排行</button>
+          </div>
+        </div>
+        <div id="home-tab-hot">
+          <table><thead><tr><th>股票</th><th>成交價</th><th>漲跌幅</th><th>成交量(張)</th><th>外資5日</th></tr></thead>
+            <tbody id="home-hot-stocks"></tbody>
+          </table>
+        </div>
+        <div id="home-tab-industry" style="display:none">
+          <table><thead><tr><th>產業別</th><th>漲跌幅</th><th>評分</th><th>成交量(張)</th><th>龍頭股</th></tr></thead>
+            <tbody id="home-industry-table-body"></tbody>
+          </table>
+          <div id="home-industry-detail" class="padded" style="display:none"></div>
+        </div>
       </div>
     </div>
     <div class="side-stack">
@@ -278,7 +286,7 @@ def generate():
 <!-- ============ 個股頁 ============ -->
 <section class="page" id="page-stock">
   <div id="stock-empty" class="card padded" style="text-align:center;padding:60px 20px;color:var(--ink-faint)">
-    請用上方搜尋框查詢股票，或從首頁／產業排行／自選股點選個股
+    請用上方搜尋框查詢股票，或從首頁／自選股點選個股
   </div>
   <div id="stock-content" style="display:none">
     <div class="card stock-header">
@@ -377,19 +385,6 @@ def generate():
     <div class="subpage" id="sub-news">
       <div class="card" id="stock-news-list"></div>
     </div>
-  </div>
-</section>
-
-<!-- ============ 產業排行 ============ -->
-<section class="page" id="page-industry">
-  <div class="section-head">
-    <div><div class="eyebrow">產業排行</div><h2>類股強弱與資金流向</h2></div>
-  </div>
-  <div class="card" style="margin-bottom:16px"><div class="heatmap" id="industry-heatmap"></div></div>
-  <div class="card">
-    <table><thead><tr><th>產業別</th><th>漲跌幅</th><th>評分</th><th>成交量(張)</th><th>龍頭股</th></tr></thead>
-      <tbody id="industry-table-body"></tbody>
-    </table>
   </div>
 </section>
 
