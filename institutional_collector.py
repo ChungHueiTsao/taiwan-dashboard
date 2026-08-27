@@ -4,10 +4,13 @@ import time
 import datetime
 import requests
 import urllib3
+import pandas as pd
 from config import SECTORS
 
 DATA_DIR = 'data'
 OUTPUT_PATH = f'{DATA_DIR}/institutional.json'
+HISTORY_PATH = f'{DATA_DIR}/institutional_history.csv'
+HISTORY_DAYS_KEPT = 20  # 個股頁籌碼趨勢圖只需要近20個交易日
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -110,6 +113,7 @@ def collect(days_needed=5, max_lookback=15):
     target_codes = _target_codes()
 
     accumulated = {code: {"foreign": 0, "trust": 0, "dealer": 0} for code in target_codes}
+    history_rows = []  # 逐日明細，供籌碼趨勢圖使用（跟5日加總是分開用途，加總只取最近5個有效交易日，這裡則盡量收集當次抓到的每一天）
     valid_days = 0
     cursor = datetime.date.today()
     lookback = 0
@@ -132,14 +136,25 @@ def collect(days_needed=5, max_lookback=15):
             lookback += 1
             continue
 
+        day_vals = {}
         for code, vals in (twse_data or {}).items():
             accumulated[code]["foreign"] += vals["foreign"]
             accumulated[code]["trust"] += vals["trust"]
             accumulated[code]["dealer"] += vals["dealer"]
+            day_vals[code] = vals
         for code, vals in (tpex_data or {}).items():
             accumulated[code]["foreign"] += vals["foreign"]
             accumulated[code]["trust"] += vals["trust"]
             accumulated[code]["dealer"] += vals["dealer"]
+            day_vals[code] = vals
+        for code, vals in day_vals.items():
+            history_rows.append({
+                "date": cursor.strftime('%Y-%m-%d'),
+                "code": code,
+                "foreign": round(vals["foreign"] / 1000),
+                "trust": round(vals["trust"] / 1000),
+                "dealer": round(vals["dealer"] / 1000),
+            })
 
         valid_days += 1
         cursor -= datetime.timedelta(days=1)
@@ -170,6 +185,21 @@ def collect(days_needed=5, max_lookback=15):
     with open(OUTPUT_PATH, 'w', encoding='utf-8') as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
     print(f"\n✅ 已儲存 {OUTPUT_PATH}（{valid_days} 個交易日，{len(stocks)} 檔股票）")
+
+    # 逐日籌碼歷史（供個股頁籌碼趨勢圖）：同日期重跑會先丟掉舊的同日資料再併入，避免重複
+    if history_rows:
+        df_new = pd.DataFrame(history_rows)
+        if os.path.exists(HISTORY_PATH):
+            df_old = pd.read_csv(HISTORY_PATH, dtype={"code": str})
+            dates_in_new = set(df_new['date'])
+            df_old = df_old[~df_old['date'].isin(dates_in_new)]
+            df_combined = pd.concat([df_old, df_new], ignore_index=True)
+        else:
+            df_combined = df_new
+        df_combined = df_combined.sort_values('date').groupby('code', group_keys=False).tail(HISTORY_DAYS_KEPT)
+        df_combined.to_csv(HISTORY_PATH, index=False)
+        print(f"✅ 已更新 {HISTORY_PATH}")
+
     return result
 
 if __name__ == '__main__':

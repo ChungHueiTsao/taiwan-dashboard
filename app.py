@@ -42,11 +42,13 @@ def run_full_update():
     try:
         from institutional_collector import collect as collect_institutional
         from events_collector import collect as collect_events
+        from fundamentals_collector import collect as collect_fundamentals
         from data_collector import collect_all
         from analyzer import analyze
         from dashboard_generator import generate
         collect_institutional()
         collect_events()
+        collect_fundamentals()
         collect_all()
         analyze()
         generate()
