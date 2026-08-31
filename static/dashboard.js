@@ -592,38 +592,51 @@
 
     Plotly.newPlot(divId, traces, {
       paper_bgcolor: COLORS.surface, plot_bgcolor: COLORS.surface, font: { color: COLORS.inkMuted, size: 10 },
-      margin: { l: 50, r: 8, t: 4, b: 20 }, showlegend: false, dragmode: 'pan', hovermode: 'x unified', annotations,
+      margin: { l: 8, r: 46, t: 4, b: 20 }, showlegend: false, dragmode: 'pan', hovermode: 'x unified', annotations,
       xaxis: { gridcolor: COLORS.grid, showgrid: true, zeroline: false, rangeslider: { visible: false }, type: 'category', range: [0, maxIdx], tickmode: 'array', tickvals, ticktext, ...spike },
       yaxis: { gridcolor: COLORS.grid, showgrid: true, zeroline: false, side: 'right', fixedrange: true, domain: [0.35, 1.0], showspikes: true },
       yaxis2: { gridcolor: COLORS.grid, showgrid: true, zeroline: false, side: 'right', fixedrange: true, domain: [0.18, 0.32], range: [0, 100], dtick: 40, showspikes: true },
       yaxis3: { gridcolor: COLORS.grid, showgrid: true, zeroline: false, side: 'right', fixedrange: true, domain: [0, 0.15], showticklabels: false, showspikes: true }
     }, PLOT_CONFIG);
 
+    // 拖曳/縮放的邊界夾取不論互動與否都要接上，否則「產業排行」成分股預覽圖(interactive=false)
+    // 一樣能被拖曳(dragmode:'pan')，卻沒有邊界保護，會拉出沒有K棒的空白
+    attachZoomBound(divId, maxIdx);
+    attachShiftWheelPan(divId, maxIdx);
+
     if (interactive) {
       _klineInfo = { dates: d.dates, o: d.o, h: d.h, l: d.l, c: d.c, v: d.v, ma5, ma20, ma60, bollU: boll.upper, bollL: boll.lower, kdK: kd.K, kdD: kd.D };
-      attachZoomBound(divId, maxIdx);
-      attachShiftWheelPan(divId);
       attachMainHover(divId);
       showKlineInfoAt(maxIdx);
     }
   }
 
+  // 把拖曳/縮放後的x軸範圍夾回[0,maxIdx]內，避免拉過頭後左右兩側出現沒有K棒的空白
+  function clampRange(x0, x1, maxIdx) {
+    let nx0 = x0, nx1 = x1; const width = nx1 - nx0;
+    if (width >= maxIdx) { nx0 = 0; nx1 = maxIdx; }
+    else { if (nx0 < 0) { nx1 -= nx0; nx0 = 0; } if (nx1 > maxIdx) { nx0 -= (nx1 - maxIdx); nx1 = maxIdx; } if (nx0 < 0) nx0 = 0; }
+    return [nx0, nx1];
+  }
   function attachZoomBound(divId, maxIdx) {
     const div = document.getElementById(divId);
     let syncing = false;
-    div.removeAllListeners && div.removeAllListeners('plotly_relayout');
-    div.on('plotly_relayout', (ev) => {
+    const handler = (ev) => {
       if (syncing) return;
       let x0 = ev['xaxis.range[0]'], x1 = ev['xaxis.range[1]'];
       if (x0 === undefined && ev['xaxis.range']) { x0 = ev['xaxis.range'][0]; x1 = ev['xaxis.range'][1]; }
       if (x0 === undefined || x1 === undefined) return;
-      let nx0 = x0, nx1 = x1; const width = nx1 - nx0;
-      if (width >= maxIdx) { nx0 = 0; nx1 = maxIdx; }
-      else { if (nx0 < 0) { nx1 -= nx0; nx0 = 0; } if (nx1 > maxIdx) { nx0 -= (nx1 - maxIdx); nx1 = maxIdx; } if (nx0 < 0) nx0 = 0; }
+      const [nx0, nx1] = clampRange(x0, x1, maxIdx);
       if (Math.abs(nx0 - x0) > 1e-6 || Math.abs(nx1 - x1) > 1e-6) { syncing = true; Plotly.relayout(div, { 'xaxis.range': [nx0, nx1] }); syncing = false; }
-    });
+    };
+    div.removeAllListeners && div.removeAllListeners('plotly_relayout');
+    div.removeAllListeners && div.removeAllListeners('plotly_relayouting');
+    // 'plotly_relayouting'在拖曳過程中即時觸發，'plotly_relayout'在放開滑鼠時觸發；
+    // 兩個都接才能讓夾回範圍的動作在拖曳當下就生效，而不是放開後才彈回來
+    div.on('plotly_relayouting', handler);
+    div.on('plotly_relayout', handler);
   }
-  function attachShiftWheelPan(divId) {
+  function attachShiftWheelPan(divId, maxIdx) {
     const div = document.getElementById(divId);
     if (div._shiftPanBound) return;
     div._shiftPanBound = true;
@@ -634,7 +647,8 @@
       if (!layout || !layout.xaxis || !layout.xaxis.range) return;
       const [x0, x1] = layout.xaxis.range; const span = x1 - x0;
       const shift = span * 0.15 * (ev.deltaY > 0 ? 1 : -1);
-      Plotly.relayout(div, { 'xaxis.range': [x0 + shift, x1 + shift] });
+      const [nx0, nx1] = clampRange(x0 + shift, x1 + shift, maxIdx);
+      Plotly.relayout(div, { 'xaxis.range': [nx0, nx1] });
     }, { passive: false });
   }
   function attachMainHover(divId) {
