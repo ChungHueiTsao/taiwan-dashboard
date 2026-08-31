@@ -346,7 +346,7 @@ def generate():
           <div class="suggest-item"><div class="sl">📌 建議進場</div><div class="sv" style="color:var(--up)" id="s-entry">-</div><div class="st" id="s-entry-note">-</div></div>
           <div class="suggest-item"><div class="sl">🛑 停損價位</div><div class="sv" style="color:var(--down)" id="s-stop">-</div><div class="st" id="s-stop-note">-</div></div>
           <div class="suggest-item"><div class="sl">🎯 目標價位</div><div class="sv" style="color:var(--accent)" id="s-target">-</div><div class="st" id="s-target-note">-</div></div>
-          <div class="suggest-item"><div class="sl">💡 操作建議</div><div class="sv" style="font-size:11px;color:var(--neutral)" id="s-action">-</div><div class="st" id="s-action-note">-</div></div>
+          <div class="suggest-item"><div class="sl">💡 操作建議</div><div class="sv" style="font-size:14px;color:var(--neutral)" id="s-action">-</div><div class="st" id="s-action-note">-</div></div>
         </div>
       </div>
     </div>
