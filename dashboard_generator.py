@@ -122,12 +122,18 @@ def generate():
     })
     history_scores = _load_history_scores()
     big_holders = _load_json('data/big_holders.json', None)
+    big_holders_trend = _load_json('data/big_holders_trend.json', {"weeks": []})
     fundamentals_doc = _load_json('data/fundamentals.json', {"stocks": {}})
     fundamentals = fundamentals_doc.get('stocks', {})
     events = _load_json('data/events.json', [])
     inst_history = _load_institutional_history()
     latest_inst_total = _latest_day_institutional_total(inst_history)
     market_breadth = _load_json('data/market_breadth.json', None)
+    margin_trading = _load_json('data/margin_trading.json', {"stocks": {}})
+    pe_history = _load_json('data/pe_history.json', {"series": {}})
+    dividend_history = _load_json('data/dividend_history.json', {"stocks": {}})
+    fin_ratio_history = _load_json('data/fin_ratio_history.json', {"series": {}})
+    exright_events = _load_json('data/exright_events.json', {"stocks": {}})
 
     sectors_raw = analysis.get('sectors', [])
     updated_at = analysis.get('updated_at', '載入中')
@@ -155,13 +161,40 @@ def generate():
             "history": history_scores.get(s['name'], {"dates": [], "scores": []})
         })
 
+    # code_bare -> sym 反查表，避免大戶/融資融券/PE歷史等併入時對每個代號都線性掃過all_stocks
+    code_to_sym = {sj['code_bare']: sym for sym, sj in all_stocks.items()}
+
     # 大戶動向：併入 all_stocks（沒有的股票就不加欄位，前端顯示「-」）
     if big_holders and big_holders.get('stocks'):
         for code, h in big_holders['stocks'].items():
-            for sym, sj in all_stocks.items():
-                if sj['code_bare'] == code:
-                    sj['holderRatio'] = h.get('holder_ratio')
-                    sj['holderRatioChange'] = h.get('ratio_change')
+            sym = code_to_sym.get(code)
+            if not sym:
+                continue
+            sj = all_stocks[sym]
+            sj['holderRatio'] = h.get('holder_ratio')
+            sj['holderRatioChange'] = h.get('ratio_change')
+            sj['retailRatio'] = h.get('retail_ratio')
+            sj['retailRatioChange'] = h.get('retail_change')
+            sj['holderTiers'] = h.get('tiers', {})
+
+    # 融資融券：併入 all_stocks
+    for code, m in (margin_trading.get('stocks', {}) or {}).items():
+        sym = code_to_sym.get(code)
+        if not sym:
+            continue
+        sj = all_stocks[sym]
+        sj['marginBalance'] = m.get('margin_balance')
+        sj['marginChange'] = m.get('margin_change')
+        sj['shortBalance'] = m.get('short_balance')
+        sj['shortChange'] = m.get('short_change')
+        sj['shortMarginRatio'] = m.get('short_margin_ratio')
+        sj['marginUsageRate'] = m.get('margin_usage_rate')
+
+    # 產業籌碼集中度排行：族群內成分股「400張以上大戶持股比」平均，供首頁產業排行頁使用
+    for s in sectors_payload:
+        ratios = [all_stocks[sym]['holderRatio'] for sym in s['stocks']
+                  if all_stocks.get(sym, {}).get('holderRatio') is not None]
+        s['holderConcentration'] = round(sum(ratios) / len(ratios), 2) if ratios else None
 
     # 事件：轉成前端可直接用的格式，並建立 code -> events 反查表（個股頁「新聞」Tab用）
     code_to_info = {sj['code_bare']: {
@@ -209,6 +242,12 @@ def generate():
         "institutionalHistory": inst_history,
         "latestInstitutionalTotal": latest_inst_total,
         "marketBreadth": market_breadth,
+        "tierLabels": (big_holders or {}).get('tier_labels', {}),
+        "bigHoldersTrend": big_holders_trend.get('weeks', []),
+        "peHistory": pe_history.get('series', {}),
+        "dividendHistory": dividend_history.get('stocks', {}),
+        "finRatioHistory": fin_ratio_history.get('series', {}),
+        "exrightEvents": exright_events.get('stocks', {}),
     }
     dashboard_data_json = json.dumps(payload, ensure_ascii=False)
 
@@ -266,7 +305,7 @@ def generate():
           </table>
         </div>
         <div id="home-tab-industry" style="display:none">
-          <table><thead><tr><th>產業別</th><th>漲跌幅</th><th>評分</th><th>成交量(張)</th><th>龍頭股</th></tr></thead>
+          <table><thead><tr><th>產業別</th><th>漲跌幅</th><th>評分</th><th>成交量(張)</th><th>籌碼集中度</th><th>龍頭股</th></tr></thead>
             <tbody id="home-industry-table-body"></tbody>
           </table>
         </div>
@@ -315,6 +354,11 @@ def generate():
           <button class="period-btn active" onclick="setPeriod(this)">日</button>
           <button class="period-btn" onclick="setPeriod(this)">週</button>
           <button class="period-btn" onclick="setPeriod(this)">月</button>
+          <div style="width:1px;height:14px;background:var(--border);margin:0 4px"></div>
+          <div class="adjust-row">
+            <button class="period-btn active" id="adjust-btn-raw" onclick="setAdjustMode('raw')">原始股價</button>
+            <button class="period-btn" id="adjust-btn-adj" onclick="setAdjustMode('adjusted')">還原股價</button>
+          </div>
           <div style="width:1px;height:14px;background:var(--border);margin:0 4px"></div>
           <div class="ind-row">
             <span><span class="dot" style="background:var(--fast)"></span>MA5</span>
@@ -368,9 +412,27 @@ def generate():
             <div class="kv-cell"><div class="k">外資5日</div><div class="v" id="chip-foreign">-</div></div>
             <div class="kv-cell"><div class="k">投信5日</div><div class="v" id="chip-trust">-</div></div>
             <div class="kv-cell"><div class="k">法人動向</div><div class="v" id="chip-signal">-</div></div>
-            <div class="kv-cell"><div class="k">大戶持股比</div><div class="v" id="chip-holder">-</div></div>
+            <div class="kv-cell"><div class="k">大戶持股比(400張以上)</div><div class="v" id="chip-holder">-</div></div>
+            <div class="kv-cell"><div class="k">散戶持股比(10張以下)</div><div class="v" id="chip-retail">-</div></div>
+            <div class="kv-cell"><div class="k">融資餘額</div><div class="v" id="chip-margin-balance">-</div></div>
+            <div class="kv-cell"><div class="k">融券餘額</div><div class="v" id="chip-short-balance">-</div></div>
+            <div class="kv-cell"><div class="k">券資比</div><div class="v" id="chip-short-ratio">-</div></div>
           </div>
           <p style="font-size:11.5px;color:var(--ink-faint);margin-top:10px">分點買賣超尚未提供（需另外處理證交所驗證碼，列為未來獨立專案）。</p>
+        </div>
+      </div>
+      <div class="two-col" style="margin-top:16px">
+        <div class="card padded">
+          <div class="section-head"><h2 style="font-size:15px">多級距股權分散結構（依集保庫存張數級距）</h2></div>
+          <canvas id="tier-canvas" height="200"></canvas>
+        </div>
+        <div class="card padded">
+          <div class="section-head"><h2 style="font-size:15px">大戶／散戶持股趨勢（週資料）</h2></div>
+          <canvas id="holder-trend-canvas" height="200"></canvas>
+          <div style="display:flex;gap:16px;margin-top:8px;font-size:11px;color:var(--ink-muted)">
+            <div class="legend-line"><span class="legend-swatch" style="background:var(--fast)"></span>大戶(400張以上)</div>
+            <div class="legend-line"><span class="legend-swatch" style="background:var(--down)"></span>散戶(10張以下)</div>
+          </div>
         </div>
       </div>
     </div>
@@ -378,6 +440,27 @@ def generate():
     <div class="subpage" id="sub-fund">
       <div class="kv-grid" id="fund-grid"></div>
       <p style="font-size:11.5px;color:var(--ink-faint);margin-top:10px">資料來源：證交所/櫃買中心官方 OpenAPI。「-」代表該欄位暫無資料（例如虧損股本益比無意義、或該產業損益表格式與一般業不同）。</p>
+      <div class="two-col" style="margin-top:16px">
+        <div class="card padded">
+          <div class="section-head"><h2 style="font-size:15px">本益比河流圖（網站上線後逐日累積）</h2></div>
+          <canvas id="pe-band-canvas" height="200"></canvas>
+        </div>
+        <div class="card padded">
+          <div class="section-head"><h2 style="font-size:15px">多年度財務比率趨勢（毛利率／營業利益率，逐季累積）</h2></div>
+          <canvas id="fin-ratio-canvas" height="200"></canvas>
+          <div style="display:flex;gap:16px;margin-top:8px;font-size:11px;color:var(--ink-muted)">
+            <div class="legend-line"><span class="legend-swatch" style="background:var(--fast)"></span>毛利率</div>
+            <div class="legend-line"><span class="legend-swatch" style="background:var(--slow)"></span>營業利益率</div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <div class="section-head padded"><h2 style="font-size:15px">股利政策／歷年配息</h2></div>
+        <table><thead><tr><th>股利年度</th><th>現金股利(元/股)</th><th>股票股利(元/股)</th><th>進度</th><th>股東會日期</th></tr></thead>
+          <tbody id="dividend-table-body"></tbody>
+        </table>
+        <div id="dividend-empty" class="rank-empty" style="display:none">尚無股利政策資料</div>
+      </div>
     </div>
 
     <div class="subpage" id="sub-news">

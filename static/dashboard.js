@@ -138,6 +138,7 @@
         <td class="mono ${up ? 'up' : 'down'}">${fmtPct(s.avgChange)}</td>
         <td class="mono">${s.score}</td>
         <td class="mono">${s.totalVolume.toLocaleString()}</td>
+        <td class="mono">${s.holderConcentration != null ? s.holderConcentration + '%' : '-'}</td>
         <td>${s.topStock}</td>
       </tr>`);
     });
@@ -230,12 +231,24 @@
     document.getElementById('chip-trust').style.color = s.trustUp === 'true' ? COLORS.up : COLORS.down;
     document.getElementById('chip-signal').textContent = s.instSignal;
     document.getElementById('chip-holder').textContent = s.holderRatio != null ? s.holderRatio + '%' : '-';
+    document.getElementById('chip-retail').textContent = s.retailRatio != null ? s.retailRatio + '%' : '-';
+    document.getElementById('chip-margin-balance').textContent = s.marginBalance != null ? fmtNum(s.marginBalance) + '張' : '-';
+    document.getElementById('chip-short-balance').textContent = s.shortBalance != null ? fmtNum(s.shortBalance) + '張' : '-';
+    document.getElementById('chip-short-ratio').textContent = s.shortMarginRatio != null ? s.shortMarginRatio + '%' : '-';
 
     renderFundamentals(s);
     renderStockNews(s);
+    renderDividendTable(s);
     drawChipTrend(s.code_bare);
+    drawTierChart(s);
+    drawHolderTrendChart(s.code_bare);
+    drawPeBandChart(s.code_bare);
+    drawFinRatioChart(s.code_bare);
 
     switchStockTabByName('tech');
+    document.getElementById('adjust-btn-raw').classList.add('active');
+    document.getElementById('adjust-btn-adj').classList.remove('active');
+    adjustMode = 'raw';
     baseKData = EMPTY_KLINE;
     fetchKline(sym).then(k => { baseKData = k || EMPTY_KLINE; renderKline(); });
   }
@@ -245,7 +258,16 @@
     document.querySelectorAll('.subtabbar button').forEach(b => b.classList.toggle('active', b.dataset.sub === name));
     document.querySelectorAll('.subpage').forEach(p => p.classList.toggle('active', p.id === 'sub-' + name));
     if (name === 'tech') setTimeout(renderKline, 0);
-    if (name === 'chip') setTimeout(() => drawChipTrend(currentStockSym && DATA.allStocks[currentStockSym].code_bare), 0);
+    if (name === 'chip' && currentStockSym) setTimeout(() => {
+      const s = DATA.allStocks[currentStockSym];
+      drawChipTrend(s.code_bare);
+      drawTierChart(s);
+      drawHolderTrendChart(s.code_bare);
+    }, 0);
+    if (name === 'fund' && currentStockSym) setTimeout(() => {
+      drawPeBandChart(DATA.allStocks[currentStockSym].code_bare);
+      drawFinRatioChart(DATA.allStocks[currentStockSym].code_bare);
+    }, 0);
   }
   function switchStockTab(btn, name) { switchStockTabByName(name); }
   window.switchStockTab = switchStockTab;
@@ -305,6 +327,181 @@
     ctx.fillStyle = COLORS.inkMuted; ctx.font = '10px "IBM Plex Mono"';
     ctx.fillText(rows[0].date.slice(5), padL, h - 6);
     ctx.fillText(rows[rows.length - 1].date.slice(5), w - padR - 30, h - 6);
+  }
+
+  function renderDividendTable(s) {
+    const tb = document.getElementById('dividend-table-body');
+    const empty = document.getElementById('dividend-empty');
+    tb.innerHTML = '';
+    const years = DATA.dividendHistory[s.code_bare] || {};
+    const rows = Object.values(years).sort((a, b) => b.year.localeCompare(a.year));
+    if (rows.length === 0) { empty.style.display = 'block'; return; }
+    empty.style.display = 'none';
+    rows.forEach(r => {
+      tb.insertAdjacentHTML('beforeend', `<tr>
+        <td class="mono">${r.year}</td>
+        <td class="mono">${r.cash_dividend != null ? r.cash_dividend.toFixed(2) : '-'}</td>
+        <td class="mono">${r.stock_dividend != null ? r.stock_dividend.toFixed(2) : '-'}</td>
+        <td>${r.progress || '-'}</td>
+        <td class="mono">${r.meeting_date || '-'}</td>
+      </tr>`);
+    });
+  }
+
+  // 通用極簡折線圖：畫在canvas上，points=[{x,y}]，供大戶/散戶趨勢、本益比河流圖、財務比率趨勢共用
+  function drawLineSeries(canvasId, seriesList, emptyMsg) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || canvas.offsetParent === null) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = 200;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+    const allPoints = seriesList.flatMap(s => s.points);
+    if (allPoints.length === 0) {
+      ctx.fillStyle = COLORS.inkMuted; ctx.font = '12px "Noto Sans TC"';
+      ctx.fillText(emptyMsg || '尚無足夠歷史資料', 10, h / 2);
+      return;
+    }
+    const padL = 44, padR = 10, padT = 14, padB = 20;
+    const plotW = w - padL - padR, plotH = h - padT - padB;
+    const ys = allPoints.map(p => p.y);
+    let minY = Math.min(...ys), maxY = Math.max(...ys);
+    if (minY === maxY) { minY -= 1; maxY += 1; }
+    const pad = (maxY - minY) * 0.1;
+    minY -= pad; maxY += pad;
+    const n = Math.max(...seriesList.map(s => s.points.length), 2);
+    const xAt = i => padL + (n <= 1 ? 0 : i / (n - 1)) * plotW;
+    const yAt = v => padT + plotH - (v - minY) / (maxY - minY) * plotH;
+    ctx.strokeStyle = COLORS.grid; ctx.lineWidth = 1;
+    [0, 0.5, 1].forEach(f => { const y = padT + f * plotH; ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke(); });
+    ctx.fillStyle = COLORS.inkMuted; ctx.font = '9px "IBM Plex Mono"';
+    ctx.fillText(maxY.toFixed(1), 4, padT + 4);
+    ctx.fillText(minY.toFixed(1), 4, padT + plotH);
+    seriesList.forEach(s => {
+      if (s.points.length === 0) return;
+      ctx.strokeStyle = s.color; ctx.lineWidth = 1.5; ctx.beginPath();
+      s.points.forEach((p, i) => { const x = xAt(i), y = yAt(p.y); i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); });
+      ctx.stroke();
+    });
+    const labelSeries = seriesList.find(s => s.points.length > 0);
+    if (labelSeries) {
+      ctx.fillStyle = COLORS.inkMuted; ctx.font = '10px "IBM Plex Mono"';
+      ctx.fillText(String(labelSeries.points[0].label).slice(0, 10), padL, h - 6);
+      ctx.fillText(String(labelSeries.points[labelSeries.points.length - 1].label).slice(0, 10), w - padR - 50, h - 6);
+    }
+  }
+
+  function drawTierChart(s) {
+    const canvas = document.getElementById('tier-canvas');
+    if (!canvas || canvas.offsetParent === null) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = 200;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+    const tiers = s.holderTiers || {};
+    const labels = DATA.tierLabels || {};
+    const tierIds = Object.keys(labels).sort((a, b) => (+a) - (+b));
+    if (tierIds.length === 0 || Object.keys(tiers).length === 0) {
+      ctx.fillStyle = COLORS.inkMuted; ctx.font = '12px "Noto Sans TC"';
+      ctx.fillText('尚無股權分散資料', 10, h / 2);
+      return;
+    }
+    const padL = 34, padR = 10, padT = 10, padB = 32;
+    const plotW = w - padL - padR, plotH = h - padT - padB;
+    const maxV = Math.max(1, ...tierIds.map(t => tiers[t] || 0));
+    const barW = plotW / tierIds.length;
+    tierIds.forEach((t, i) => {
+      const v = tiers[t] || 0;
+      const bh = v / maxV * plotH;
+      const x = padL + i * barW;
+      const isBig = ['12', '13', '14', '15'].includes(t);
+      ctx.fillStyle = isBig ? COLORS.accent : COLORS.border;
+      ctx.fillRect(x + barW * 0.12, padT + plotH - bh, barW * 0.76, bh);
+    });
+    ctx.fillStyle = COLORS.inkMuted; ctx.font = '8.5px "Noto Sans TC"';
+    ctx.save();
+    tierIds.forEach((t, i) => {
+      const x = padL + i * barW + barW / 2;
+      ctx.save(); ctx.translate(x, h - 6); ctx.rotate(-Math.PI / 4);
+      ctx.fillText(labels[t] || t, -14, 0);
+      ctx.restore();
+    });
+    ctx.restore();
+  }
+
+  function drawHolderTrendChart(code) {
+    const weeks = DATA.bigHoldersTrend || [];
+    const holderPts = [], retailPts = [];
+    weeks.forEach(w => {
+      const st = w.stocks[code];
+      if (!st) return;
+      if (st.holder_ratio != null) holderPts.push({ y: st.holder_ratio, label: w.data_date });
+      if (st.retail_ratio != null) retailPts.push({ y: st.retail_ratio, label: w.data_date });
+    });
+    drawLineSeries('holder-trend-canvas', [
+      { points: holderPts, color: COLORS.fast },
+      { points: retailPts, color: COLORS.down },
+    ], '尚無足夠週資料（每週累積一筆）');
+  }
+
+  function drawPeBandChart(code) {
+    const points = (DATA.peHistory[code] || []).map(p => ({ y: p.pe, label: p.date }));
+    drawLineSeries('pe-band-canvas', [{ points, color: COLORS.accent }], '尚無足夠歷史資料（每日累積一筆）');
+  }
+
+  function drawFinRatioChart(code) {
+    const rows = DATA.finRatioHistory[code] || [];
+    const gross = rows.filter(r => r.gross_margin != null).map(r => ({ y: r.gross_margin, label: r.period }));
+    const op = rows.filter(r => r.operating_margin != null).map(r => ({ y: r.operating_margin, label: r.period }));
+    drawLineSeries('fin-ratio-canvas', [
+      { points: gross, color: COLORS.fast },
+      { points: op, color: COLORS.slow },
+    ], '尚無足夠季度資料（每季累積一筆）');
+  }
+
+  // ============================================================
+  // 除權息還原K線：原始股價／還原股價切換
+  // ============================================================
+  let adjustMode = 'raw';
+  function setAdjustMode(mode) {
+    adjustMode = mode;
+    document.getElementById('adjust-btn-raw').classList.toggle('active', mode === 'raw');
+    document.getElementById('adjust-btn-adj').classList.toggle('active', mode === 'adjusted');
+    renderKline();
+  }
+  window.setAdjustMode = setAdjustMode;
+
+  // 還原股價：從最新一天往回，遇到除權息日就把該日以前的股價乘上調整係數
+  // (現金股利: (收盤-股利)/收盤；股票股利: 1/(1+配股率))，逐筆累乘。
+  // 官方API沒有除權息歷史查詢端點，事件只從網站上線那天開始累積，上線前的老K線暫時無法還原。
+  function applyExrightAdjustment(base, code) {
+    const events = (DATA.exrightEvents && DATA.exrightEvents[code]) || [];
+    if (events.length === 0 || !base.dates || base.dates.length === 0) return base;
+    const factors = base.dates.map(() => 1);
+    let cumFactor = 1;
+    for (let i = base.dates.length - 1; i >= 0; i--) {
+      factors[i] = cumFactor;
+      const date = base.dates[i];
+      const ev = events.find(e => e.date === date);
+      if (ev) {
+        const prevClose = base.c[i];
+        let f = 1;
+        if (ev.cash_dividend > 0 && prevClose > ev.cash_dividend) f *= (prevClose - ev.cash_dividend) / prevClose;
+        if (ev.stock_dividend_ratio > 0) f *= 1 / (1 + ev.stock_dividend_ratio);
+        cumFactor *= f;
+      }
+    }
+    return {
+      dates: base.dates,
+      o: base.o.map((v, i) => +(v * factors[i]).toFixed(2)),
+      h: base.h.map((v, i) => +(v * factors[i]).toFixed(2)),
+      l: base.l.map((v, i) => +(v * factors[i]).toFixed(2)),
+      c: base.c.map((v, i) => +(v * factors[i]).toFixed(2)),
+      v: base.v,
+      colors: base.colors,
+    };
   }
 
   // ============================================================
@@ -556,7 +753,10 @@
   function renderKline() {
     const canvas = document.getElementById('mainChart');
     if (!canvas || canvas.offsetParent === null) return;
-    const d = aggregateData(baseKData, currentPeriod);
+    let d = aggregateData(baseKData, currentPeriod);
+    if (adjustMode === 'adjusted' && currentStockSym) {
+      d = applyExrightAdjustment(d, DATA.allStocks[currentStockSym].code_bare);
+    }
     renderKlineInto('mainChart', d, true);
   }
 

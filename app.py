@@ -44,6 +44,8 @@ def run_full_update():
         from events_collector import collect as collect_events
         from fundamentals_collector import collect as collect_fundamentals
         from market_breadth_collector import collect as collect_market_breadth
+        from margin_trading_collector import collect as collect_margin_trading
+        from exright_collector import collect as collect_exright
         from data_collector import collect_all
         from analyzer import analyze
         from dashboard_generator import generate
@@ -51,6 +53,8 @@ def run_full_update():
         collect_events()
         collect_fundamentals()
         collect_market_breadth()
+        collect_margin_trading()
+        collect_exright()
         collect_all()
         analyze()
         generate()
